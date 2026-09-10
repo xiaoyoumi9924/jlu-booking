@@ -1,5 +1,6 @@
 import base64
 
+from jlu_booking.gui import BookingApp
 from jlu_booking.ui_support import (
     EMBEDDED_LOGO_GIF,
     choose_ui_fonts,
@@ -77,6 +78,22 @@ def test_window_geometry_keeps_preferred_size_on_large_screen():
         370,
         140,
     )
+
+
+def test_main_window_opens_at_a_larger_non_fullscreen_size():
+    assert (BookingApp.MAIN_WINDOW_WIDTH, BookingApp.MAIN_WINDOW_HEIGHT) == (
+        1400,
+        900,
+    )
+    width, height, x, y = fit_window_geometry(
+        1920,
+        1080,
+        BookingApp.MAIN_WINDOW_WIDTH,
+        BookingApp.MAIN_WINDOW_HEIGHT,
+    )
+    assert (width, height) == (1400, 900)
+    assert x > 0
+    assert y > 0
 
 
 def test_window_geometry_never_exceeds_tiny_screen():

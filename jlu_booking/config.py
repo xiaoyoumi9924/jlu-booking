@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from pathlib import Path
 
@@ -139,6 +140,9 @@ def load_auto_config(path=AUTO_CONFIG_FILE, create_if_missing=True):
             f"自动预约配置 JSON 格式错误：{path}\n{exc}"
         ) from exc
 
+    if not isinstance(raw, dict):
+        return validate_auto_config(raw)
+
     return validate_auto_config(raw)
 
 
@@ -147,11 +151,26 @@ def save_auto_config(config, path=AUTO_CONFIG_FILE):
     normalized = validate_auto_config(config)
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            path.parent.chmod(0o700)
+        except OSError:
+            pass
     temp_path = path.with_suffix(path.suffix + ".tmp")
     temp_path.write_text(
         json.dumps(normalized, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    if os.name != "nt":
+        try:
+            temp_path.chmod(0o600)
+        except OSError:
+            pass
     temp_path.replace(path)
+    if os.name != "nt":
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
 
     return normalized

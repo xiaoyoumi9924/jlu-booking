@@ -202,7 +202,7 @@ jlu-booking-auto --dry-run
 请输入 JLU_BOOKING_TOKEN（输入不会回显）：
 ```
 
-输入过程中屏幕不会出现字符或星号，这是密码输入的正常行为。如果直接按 Enter 提交空内容，程序会提示没有找到 Token 并退出。非空 Token 会和 GUI 输入一样保存到当前用户目录，下一次运行不再询问。
+输入过程中屏幕不会出现字符或星号，这是密码输入的正常行为。如果直接按 Enter 提交空内容，程序会提示没有找到 Token 并退出。非空 Token 会保存到当前 Linux 用户的配置目录，下次自动复用。
 
 按 `Ctrl+C` 可以停止扫描。确认配置和仅扫描模式正常后，才考虑运行：
 
@@ -212,27 +212,27 @@ jlu-booking-auto --real-booking
 
 该命令可能产生真实预约，运行前请再次核对场馆、项目、日期、同行人和时间优先级。
 
-## 8. 保存与修改 Token
+## 8. 管理或临时覆盖 Token
 
-查看当前保存状态和具体路径（不会显示 Token 内容）：
+查看本机 Token 保存状态（不会显示内容）：
 
 ```bash
 jlu-booking-token status
 ```
 
-通过隐藏输入永久保存到当前 Linux 用户目录：
+隐藏输入并保存或更新：
 
 ```bash
 jlu-booking-token set
 ```
 
-Token 失效或需要换账号时，再执行一次 `jlu-booking-token set` 即可覆盖。修改后应重启已经运行的 GUI 或自动任务。清除保存值使用：
+清除保存值：
 
 ```bash
 jlu-booking-token clear
 ```
 
-Token 的读取优先级为：`JLU_BOOKING_TOKEN` 环境变量 > 当前用户保存的 Token > 交互式隐藏输入。如果只想在当前终端临时覆盖，可以运行：
+程序优先读取本次进程的 `JLU_BOOKING_TOKEN`，未设置时读取本机保存值。当前终端可以这样临时覆盖：
 
 ```bash
 read -rsp "请输入 JLU_BOOKING_TOKEN：" JLU_BOOKING_TOKEN
@@ -246,7 +246,7 @@ export JLU_BOOKING_TOKEN
 unset JLU_BOOKING_TOKEN
 ```
 
-不要把真实 Token 写进项目、配置 JSON、README、Issue 或截图。保存文件为本机明文凭据，程序会尽量将目录权限设为 `0700`、文件权限设为 `0600`；不要共享或上传它。
+不要把真实 Token 或学号写进项目仓库、README、Issue、脚本或截图。同行人学号由 GUI 保存到当前用户配置，也可通过 `JLU_BOOKING_COMPANION` 临时覆盖。
 
 ## 9. 配置、日志和状态目录
 
@@ -358,11 +358,11 @@ python -m pip install -e .
 
 ### 自动任务提示“没有找到可用 Token”
 
-先运行 `jlu-booking-token status`。若显示未保存，运行 `jlu-booking-token set` 后再启动自动任务；也可以重新运行自动任务，在隐藏输入提示中粘贴完整 Token。若是 cron 或 systemd，请确认它与保存 Token 使用的是同一个 Linux 用户。
+先运行 `jlu-booking-token status` 检查当前用户是否已有保存值；没有时运行 `jlu-booking-token set`。同行人应先在 GUI 中验证并保存，或写入该用户的预约配置。
 
 ### 修改 Token 后仍然使用旧值
 
-先重启当前任务。若 `jlu-booking-token status` 显示环境变量优先，说明 Shell、cron 或 systemd 中的 `JLU_BOOKING_TOKEN` 正在覆盖保存文件；清除或更新该环境变量后再运行。
+先重启当前任务。如果 Shell 中的 `JLU_BOOKING_TOKEN` 仍然存在，它会继续生效；清除或更新该环境变量后再运行。
 
 ## 11. 一套可直接照抄的 Ubuntu/Debian 流程
 
@@ -377,7 +377,7 @@ source .venv/bin/activate
 python -m pip install -e .
 jlu-booking-auto --help
 jlu-booking-auto --show-config
-jlu-booking-token set
+jlu-booking-token status
 jlu-booking
 ```
 

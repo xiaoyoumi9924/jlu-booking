@@ -15,7 +15,13 @@ if __package__:
     from .api import VENUES, get_sports_for_venue, resolve_venue_sport, book_place, can_book, extract_available_slots, get_companion_user, query_courts
     from .config import AUTO_CONFIG_FILE, load_auto_config, require_companion_student_number, save_auto_config, validate_auto_config
     from .paths import LOG_DIR
-    from .token_store import TokenStoreError, extract_token_input, resolve_token, save_token
+    from .token_store import (
+        TokenStoreError,
+        clear_saved_token,
+        extract_token_input,
+        resolve_token,
+        save_token,
+    )
     from .ui_support import (
         EMBEDDED_LOGO_GIF,
         choose_ui_fonts,
@@ -29,7 +35,13 @@ else:
     from jlu_booking.api import VENUES, get_sports_for_venue, resolve_venue_sport, book_place, can_book, extract_available_slots, get_companion_user, query_courts
     from jlu_booking.config import AUTO_CONFIG_FILE, load_auto_config, require_companion_student_number, save_auto_config, validate_auto_config
     from jlu_booking.paths import LOG_DIR
-    from jlu_booking.token_store import TokenStoreError, extract_token_input, resolve_token, save_token
+    from jlu_booking.token_store import (
+        TokenStoreError,
+        clear_saved_token,
+        extract_token_input,
+        resolve_token,
+        save_token,
+    )
     from jlu_booking.ui_support import (
         EMBEDDED_LOGO_GIF,
         choose_ui_fonts,
@@ -99,6 +111,8 @@ class ScrollableFrame(tk.Frame):
 
 class BookingApp:
     SIDEBAR_WIDTH = 320
+    MAIN_WINDOW_WIDTH = 1400
+    MAIN_WINDOW_HEIGHT = 900
 
     def __init__(self, root):
         self.root = root
@@ -251,7 +265,7 @@ class BookingApp:
         self.is_saving_auto_config = False
         self.is_closing = False
 
-        self.center_window(1180, 800)
+        self.center_window(self.MAIN_WINDOW_WIDTH, self.MAIN_WINDOW_HEIGHT)
         self.setup_styles()
         self.load_logo()
         self.build_ui()
@@ -330,7 +344,7 @@ class BookingApp:
         )
 
     def get_token(self, parent=None, prompt=True):
-        """Return a server-validated Token, saving new input only after it passes."""
+        """Return a validated Token and remember newly entered values locally."""
 
         dialog_parent = parent or self.root
         candidate = str(getattr(self, "token", "") or "").strip()
@@ -350,7 +364,8 @@ class BookingApp:
                         "请粘贴 Token，或者直接粘贴包含 token=... 的完整请求地址。\n\n"
                         "获取方法：登录学校场馆系统 → 打开浏览器开发者工具 "
                         "Network → 查询一次场地 → 找到 easyserpClient 请求。\n\n"
-                        "提交后程序会先向学校系统验证；只有有效 Token 才会保存。"
+                        "提交后程序会先向学校系统验证；只有有效 Token 才会保存到"
+                        "当前用户的本机配置目录，下次打开会自动读取。"
                     ),
                     show="*",
                     parent=dialog_parent,
@@ -368,13 +383,18 @@ class BookingApp:
                     candidate = ""
                     continue
                 entered_now = True
-
             try:
                 self.validate_token(candidate)
             except Exception as exc:
+                previous_source = getattr(self, "token_source", "none")
                 self.token = ""
                 self.token_source = "none"
                 self.token_validated = False
+                if previous_source == "saved":
+                    try:
+                        clear_saved_token()
+                    except TokenStoreError:
+                        pass
                 messagebox.showerror(
                     "Token 验证未通过",
                     (
@@ -420,6 +440,8 @@ class BookingApp:
                 "第一次使用只需完成两件事：\n\n"
                 "1. 粘贴自己的 Token 或完整请求地址\n"
                 "2. 在“自动预约”中选择目标并点击“保存并启动”\n\n"
+                "验证成功后，Token 和同行人学工号会保存在当前用户的本机配置中，"
+                "下次打开会自动读取。它们不会被打包进程序或上传到 GitHub。\n\n"
                 "是否现在设置 Token？"
             ),
             parent=self.root,
@@ -2563,7 +2585,11 @@ class BookingApp:
         )
         self.auto_companion_entry.pack(fill="x", pady=(8, 5), ipady=8)
         self.auto_companion_status_var = tk.StringVar(
-            value="必填；每次保存前都会向学校系统重新验证"
+            value=(
+                "已读取本机保存值；保存前会重新验证"
+                if config["companion_student_number"]
+                else "必填；验证成功后会记住，下次打开自动填写"
+            )
         )
         self.auto_companion_status_label = tk.Label(
             companion_col,
@@ -2692,7 +2718,9 @@ class BookingApp:
         path_text = str(AUTO_CONFIG_FILE)
         tk.Label(
             card,
-            text=f"配置文件：{path_text}",
+            text=(
+                f"本机配置文件：{path_text}（Token 单独保存在当前用户目录）"
+            ),
             font=(self.FONT, 8),
             fg=self.COLOR_MUTED,
             bg=self.COLOR_CARD,
@@ -3076,7 +3104,9 @@ class BookingApp:
 
         self.set_auto_config_saving(False)
         if self.auto_companion_status_var is not None:
-            self.auto_companion_status_var.set(f"✓ 同行人验证通过：{companion_name}")
+            self.auto_companion_status_var.set(
+                f"✓ 同行人验证通过并已记住：{companion_name}"
+            )
             self.auto_companion_status_label.configure(fg=self.COLOR_GREEN)
 
         # 查询页同步到刚保存的场馆、项目与日期，方便立即手动查看。
@@ -3094,7 +3124,7 @@ class BookingApp:
             self.start_auto_booking(saved)
             return
         # 验证与保存成功只更新页面状态，不再用弹窗打断用户。
-        self.auto_status_var.set("配置已保存")
+        self.auto_status_var.set("配置已保存；Token 与同行人下次自动读取")
 
     def auto_process_is_running(self):
         return self.auto_process is not None and self.auto_process.poll() is None
@@ -3141,6 +3171,9 @@ class BookingApp:
         environment["PYTHONUTF8"] = "1"
         if self.token:
             environment["JLU_BOOKING_TOKEN"] = self.token
+        companion_number = str(config.get("companion_student_number", "")).strip()
+        if companion_number:
+            environment["JLU_BOOKING_COMPANION"] = companion_number
 
         creationflags = 0
         if os.name == "nt":

@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 
 import pytest
 
@@ -7,6 +9,7 @@ from jlu_booking.config import (
     load_auto_config,
     require_companion_student_number,
     normalize_time_priority,
+    save_auto_config,
     validate_auto_config,
 )
 from jlu_booking.paths import default_config_file, default_runtime_dir
@@ -50,6 +53,42 @@ def test_real_booking_requires_companion():
 
     with pytest.raises(ValueError, match="同行人学工号"):
         validate_auto_config(config)
+
+
+def test_save_persists_companion_student_number_for_next_launch(tmp_path):
+    config_path = tmp_path / "auto_booking.json"
+
+    runtime = save_auto_config(
+        {
+            **DEFAULT_AUTO_CONFIG,
+            "companion_student_number": "example-1234",
+            "real_booking_enabled": True,
+        },
+        config_path,
+    )
+
+    assert runtime["companion_student_number"] == "example-1234"
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["companion_student_number"] == "example-1234"
+    if os.name != "nt":
+        assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+
+
+def test_load_remembers_companion_student_number(tmp_path):
+    config_path = tmp_path / "auto_booking.json"
+    legacy = {
+        **DEFAULT_AUTO_CONFIG,
+        "companion_student_number": "legacy-1234",
+        "real_booking_enabled": True,
+    }
+    config_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = load_auto_config(config_path)
+
+    assert loaded["companion_student_number"] == "legacy-1234"
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["companion_student_number"] == "legacy-1234"
+    assert persisted["real_booking_enabled"] is True
 
 
 def test_gui_saved_plan_requires_a_companion_number():

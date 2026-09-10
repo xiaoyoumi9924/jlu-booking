@@ -91,6 +91,7 @@ def test_token_cli_status_never_displays_token(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
 
     assert "本机保存状态：已保存" in output
+    assert "当前优先来源：本机保存的 Token" in output
     assert "never-print-this-token" not in output
 
 
@@ -136,7 +137,6 @@ def test_gui_reprompts_until_token_passes_server_validation(monkeypatch):
         lambda title, message, **_kwargs: errors.append((title, message)),
     )
     monkeypatch.setattr("jlu_booking.gui.save_token", lambda token: saved.append(token))
-
     def validate(token):
         if token == "expired-token":
             raise RuntimeError("Token已失效")
@@ -148,3 +148,41 @@ def test_gui_reprompts_until_token_passes_server_validation(monkeypatch):
     assert len(errors) == 1
     assert errors[0][0] == "Token 验证未通过"
     assert "expired-token" not in errors[0][1]
+
+
+def test_gui_replaces_an_expired_saved_token(monkeypatch):
+    app = BookingApp.__new__(BookingApp)
+    app.root = object()
+    app.token = "expired-token"
+    app.token_source = "saved"
+    app.token_validated = False
+    cleared = []
+    saved = []
+
+    monkeypatch.setattr(
+        "jlu_booking.gui.simpledialog.askstring",
+        lambda *_args, **_kwargs: "replacement-token",
+    )
+    monkeypatch.setattr(
+        "jlu_booking.gui.messagebox.showerror",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "jlu_booking.gui.clear_saved_token",
+        lambda: cleared.append(True),
+    )
+    monkeypatch.setattr(
+        "jlu_booking.gui.save_token",
+        lambda token: saved.append(token),
+    )
+
+    def validate(token):
+        if token == "expired-token":
+            raise RuntimeError("Token 已失效")
+
+    app.validate_token = validate
+
+    assert app.get_token() == "replacement-token"
+    assert cleared == [True]
+    assert saved == ["replacement-token"]
+    assert app.token_source == "saved"

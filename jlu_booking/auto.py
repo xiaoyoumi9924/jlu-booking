@@ -1,6 +1,7 @@
 import argparse
 import getpass
 import json
+import os
 import re
 import sys
 import time
@@ -93,6 +94,21 @@ class BookingOutcomeUnknown(RuntimeError):
     """最终提交已发出，但客户端无法确认服务器是否已经执行。"""
 
 
+def configure_text_output(streams=None):
+    """Force UTF-8 for the GUI worker and escape any future bad characters."""
+
+    selected_streams = (sys.stdout, sys.stderr) if streams is None else streams
+    for stream in selected_streams:
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (OSError, ValueError):
+            # Some test runners and replaced streams cannot be reconfigured.
+            continue
+
+
 def parse_time_range(value):
     text = str(value).strip()
     if "-" not in text:
@@ -167,9 +183,10 @@ def build_arg_parser():
     return parser
 
 
-def load_runtime_settings(args):
+def load_runtime_settings(args, environ=None):
     config_path = Path(args.config).expanduser()
     settings = load_auto_config(config_path, create_if_missing=True)
+    environment = os.environ if environ is None else environ
 
     overrides = {}
     if args.venue is not None:
@@ -180,6 +197,10 @@ def load_runtime_settings(args):
         overrides["target_day"] = args.day
     if args.companion is not None:
         overrides["companion_student_number"] = args.companion
+    elif environment.get("JLU_BOOKING_COMPANION", "").strip():
+        overrides["companion_student_number"] = environment[
+            "JLU_BOOKING_COMPANION"
+        ].strip()
     if args.court is not None:
         overrides["preferred_court_number"] = args.court
     if args.time is not None:
@@ -376,7 +397,7 @@ def has_success_state(query_date):
     return existing_success_state_path(query_date) is not None
 
 
-def save_success_state(query_date, slot, companion_name, server_result):
+def save_success_state(query_date, slot):
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
     payload = {
@@ -388,8 +409,6 @@ def save_success_state(query_date, slot, companion_name, server_result):
         "place_short_name": slot["place_short_name"],
         "start": slot["start"],
         "end": slot["end"],
-        "companion_name": companion_name,
-        "server_result": server_result,
     }
 
     success_state_path(query_date).write_text(
@@ -728,8 +747,6 @@ def attempt_real_booking(
         save_success_state(
             query_date=query_date,
             slot=slot,
-            companion_name=companion_name,
-            server_result=result,
         )
     except OSError as exc:
         # 服务器已明确预约成功，即使本地状态写入失败也必须停止，
@@ -747,7 +764,7 @@ def attempt_real_booking(
 
     print()
     print("=" * 72)
-    print(f"✓ {SPORT_NAME}自动预约成功")
+    print(f"预约成功：{SPORT_NAME}")
     print("=" * 72)
     print(f"场地：{slot['court_name']}")
     print(f"日期：{query_date}")
@@ -776,7 +793,7 @@ def get_runtime_token():
 
     if not token and sys.stdin.isatty():
         token = getpass.getpass(
-            "请输入 JLU_BOOKING_TOKEN（输入不会回显，输入后保存）："
+            "请输入 JLU_BOOKING_TOKEN（输入不会回显，输入后保存到本机）："
         ).strip()
         if token:
             token_source = "prompt"
@@ -809,8 +826,8 @@ def ensure_auto_run_ready(settings, *, explicit_dry_run=False):
     raise SystemExit(
         "自动预约配置尚未完成：同行人学工号为空。\n"
         f"当前选择：{settings['venue']} / {settings['sport']}。\n\n"
-        "请先运行 jlu-booking，点击左侧“自动预约”，填写同行人、"
-        "场馆、项目和时间后保存；然后再运行 jlu-booking-auto。\n"
+        "请在 GUI 的“自动预约”页填写同行人后直接启动；命令行运行时可用 "
+        "--companion 或本次进程的 JLU_BOOKING_COMPANION 环境变量提供。\n"
         "如果只想测试场次查询，可以明确运行：jlu-booking-auto --dry-run"
     )
 
@@ -1109,6 +1126,7 @@ def run_booking_loop(
 
 
 def main(argv=None):
+    configure_text_output()
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
@@ -1220,7 +1238,7 @@ def main(argv=None):
 
     if REAL_BOOKING_ENABLED:
         print(
-            f"⚠ 当前为真实预约模式："
+            f"警告：当前为真实预约模式："
             f"发现符合条件的{SPORT_NAME}场次后会自动提交预约"
         )
 
@@ -1252,7 +1270,7 @@ def main(argv=None):
                 )
 
             print(
-                f"[{now_text()}] ✓ 同行人验证成功：{companion_name}",
+                f"[{now_text()}] 同行人验证成功：{companion_name}",
                 flush=True,
             )
         else:

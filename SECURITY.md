@@ -8,9 +8,9 @@
 
 ## 本地数据与发布包
 
-Token 保存在当前操作系统用户的配置目录中，权限允许时会限制为仅当前用户可读；自动预约配置和运行日志同样不属于发布包。同一台电脑上的多个 JLU Booking 副本会读取同一份用户配置，因此可能自动复用这台电脑之前保存的 Token，但其他电脑不会获得该 Token。
+Token 和同行人学工号会保存在当前操作系统用户的配置目录中，以便下次启动自动读取。Token 使用独立文件保存，类 Unix 系统会尽量限制为仅当前用户可读；Windows 使用当前用户 AppData 目录继承的访问控制。它们不会写入日志、成功状态文件、Git 仓库或发布包。Token 文件是本机明文凭据，不应共享或上传；可随时运行 `jlu-booking-token clear` 清除。
 
-项目的 PyInstaller 配置只打包程序代码和公开资源，不包含 `config/auto_booking.json`、`runtime/`、Token 文件或日志。CI 和 Release 构建前都会运行：
+项目的 PyInstaller 配置只打包程序代码和公开资源，不包含本机配置、运行状态或日志。CI 和 Release 构建前都会运行：
 
 ```bash
 python tools/privacy_check.py

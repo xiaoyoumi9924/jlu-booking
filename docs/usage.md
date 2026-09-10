@@ -96,9 +96,7 @@ jlu-booking-token status
 jlu-booking-token set
 ```
 
-Token 失效或需要更换账号时，再运行一次 `jlu-booking-token set`，新值会覆盖旧值。已经运行的 GUI 或自动任务只在启动时读取一次，修改后需要重启。
-
-清除保存值：
+Token 失效或需要更换账号时，再运行一次 `jlu-booking-token set`，新值会覆盖旧值。清除保存值：
 
 ```bash
 jlu-booking-token clear
@@ -109,11 +107,12 @@ jlu-booking-token clear
 ```bash
 python -m jlu_booking.token_cli status
 python -m jlu_booking.token_cli set
+python -m jlu_booking.token_cli clear
 ```
 
 ### 2.2 临时环境变量
 
-Token 读取优先级为：`JLU_BOOKING_TOKEN` 环境变量 > 当前用户保存的 Token > 交互式隐藏输入。GUI 或自动任务在交互式提示中收到非空 Token 后都会保存；环境变量适合临时覆盖已保存值，本身不会被自动写入文件。
+Token 读取优先级为：`JLU_BOOKING_TOKEN` 环境变量 > 当前用户保存的 Token > 交互式隐藏输入。环境变量只临时覆盖保存值，不会自动写入文件。
 
 当前终端临时设置方式如下。
 
@@ -135,9 +134,7 @@ Windows CMD：
 set JLU_BOOKING_TOKEN=你的 Token
 ```
 
-终端关闭后，这些临时变量通常会失效。若环境变量仍存在，`jlu-booking-token set` 虽然会更新保存文件，但程序运行时仍优先使用环境变量；先清除环境变量或重新打开终端，保存值才会生效。
-
-Token 文件是本机明文凭据，不会进入项目仓库。类 Unix 系统会尽量把文件权限设为 `0600`，Windows 则放在当前用户配置目录并沿用该目录的访问控制。不要共享、上传或手动复制该文件；怀疑泄露时应退出网页登录会话、重新获取 Token 并更新保存值。
+终端关闭后，这些临时变量通常会失效。Token 文件是本机明文凭据，不会进入仓库；类 Unix 系统会尽量限制为 `0600`，Windows 放在当前用户配置目录并沿用该目录的访问控制。不要共享、上传或手动复制该文件。
 
 ## 3 图形界面
 
@@ -155,7 +152,7 @@ python -m jlu_booking
 
 主界面可以切换场馆、运动项目和日期，查询可预约时段。真实手动预约需要依次完成同行人验证、可预约检查和最终确认，避免误触直接提交。
 
-首次打开且没有环境变量或已保存 Token 时，GUI 会显示首次使用向导；也会在第一次查询或启动自动任务时弹出隐藏输入框。粘贴单独 Token 或完整请求地址后，程序先向学校系统验证，再保存有效值。若验证不通过会要求重新输入；若仅本地保存失败，GUI 会明确提示，但本次运行仍可临时使用已经验证的 Token。
+首次打开且没有已保存 Token 时，GUI 会显示使用向导。粘贴单独 Token 或完整请求地址后，程序先向学校系统执行只读验证；验证成功才保存，下次打开自动读取。Token 过期时会清除旧值并要求重新输入。
 
 左侧的“场地查询”和“自动预约”是两个并列功能选项，当前功能会显示明确的选中状态；点击后只切换右侧内容，不会打开新窗口。左侧场馆也是全局选择：切换场馆后，查询页和自动预约页都会同步到该场馆，并刷新对应的运动项目。
 
@@ -168,11 +165,11 @@ python -m jlu_booking
 - 时间段优先级
 - 运行模式：“仅扫描”或“真实预约”两个并列选项
 
-同行人学工号为 GUI 自动预约配置的必填项。点击“保存配置”或“保存并启动”后，程序会先使用已经验证的 Token 向学校系统验证同行人；只有验证成功才会写入配置。同行人无效时会弹出原因、选中输入内容并要求重新填写；验证成功时只更新绿色状态，不再弹出成功窗口。
+同行人学工号为 GUI 自动预约的必填项。点击“保存配置”或“保存并启动”后，程序会先使用已经验证的 Token 向学校系统验证同行人；验证成功后写入当前用户的预约配置，下次打开自动填入。同行人无效时会弹出原因并要求重新填写。
 
-“仅扫描”和“真实预约”采用与运动项目相同的两个并列选择按钮，当前模式会显示勾选；选择真实预约时，页面会保留红色风险说明。点击“保存配置”只保存设置；点击“保存并启动”会在 Token 与同行人验证通过后直接从 GUI 启动自动任务，不再出现 Yes/No 二次确认。启动后会自动弹出独立的大日志窗口，其中可切换“实时输出”“事件日志”和“请求耗时日志”；底部统一提供“刷新日志”“打开日志文件夹”和“关闭”三个按钮。关闭日志窗口不会停止后台任务，主页面仍可停止任务或再次打开日志窗口。日志正文使用较大的等宽字体、增加行距并自动换行，便于持续观察。
+“仅扫描”和“真实预约”采用与运动项目相同的两个并列选择按钮，当前模式会显示勾选；选择真实预约时，页面会保留红色风险说明。“保存配置”会记住全部预约设置；“保存并启动”还会立即启动本次自动任务。启动后会自动弹出独立的大日志窗口。
 
-保存只影响下一次启动的自动任务，不会修改已经运行进程中的配置。如需切换目标，请先停止当前任务，再保存并启动。
+保存的设置只影响下一次启动的自动任务，不会修改已经运行的进程。如需切换目标，请先停止当前任务，再保存并启动。
 
 ## 4 自动预约配置与命令行
 
@@ -184,9 +181,9 @@ python -m jlu_booking
 jlu-booking-auto --show-config
 ```
 
-初始配置为“前卫体育馆 / 羽毛球 / 未配置同行人 / 仅扫描”。未填写同行人时直接运行 `jlu-booking-auto`，程序会在读取 Token 和联网前停止，并提示先打开 GUI 左侧的“自动预约”完成设置。只有明确执行 `jlu-booking-auto --dry-run` 时，才允许无同行人继续测试查询。
+初始配置为“前卫体育馆 / 羽毛球 / 未配置同行人 / 仅扫描”。在 GUI 验证并保存同行人后，命令行任务会自动读取；也可用本次命令的 `--companion` 或 `JLU_BOOKING_COMPANION` 临时覆盖。
 
-如果需要 JSON 结构，可以执行 `jlu-booking-auto --show-config-json`。学工号在两种显示方式中都会脱敏。
+如果需要 JSON 结构，可以执行 `jlu-booking-auto --show-config-json`。如果本次进程临时提供了学号，显示时仍会脱敏。
 
 配置文件的结构等价于仓库中的 `config/auto_booking.example.json`：
 
@@ -195,7 +192,6 @@ jlu-booking-auto --show-config
   "venue": "前卫体育馆",
   "sport": "羽毛球",
   "target_day": "今天",
-  "companion_student_number": "",
   "preferred_court_number": 3,
   "real_booking_enabled": false,
   "time_priority": [
@@ -212,7 +208,6 @@ jlu-booking-auto --show-config
 | `venue` | 预约场馆 |
 | `sport` | 场馆支持的运动项目 |
 | `target_day` | `今天` 或 `明天` |
-| `companion_student_number` | 同行人学工号；GUI 保存时始终必填并在线验证，CLI 显式 `--dry-run` 可临时为空 |
 | `preferred_court_number` | 同一时间段内优先选择的场地编号 |
 | `real_booking_enabled` | `false` 仅扫描，`true` 允许真实提交 |
 | `time_priority` | 从前到后的时间段优先级 |
@@ -239,7 +234,7 @@ Windows PowerShell 可以把命令写在一行，或使用反引号续行。
 --config PATH       使用指定配置文件
 --show-config       用中文摘要显示生效配置
 --show-config-json  用 JSON 显示生效配置
---show-paths        显示配置、Token、日志和状态路径
+--show-paths        显示配置、日志、状态路径和凭据存储状态
 --dry-run           本次仅扫描
 --real-booking      本次允许真实提交
 --time HH:MM-HH:MM  添加时间优先级，可重复传入
@@ -265,7 +260,7 @@ jlu-booking-auto --help
 <虚拟环境中的 Python> -m jlu_booking.auto
 ```
 
-工作目录可以是任意目录。非交互任务会读取当前操作系统用户保存的 Token；也可以由调度器通过 `JLU_BOOKING_TOKEN` 临时覆盖。计划任务必须使用与保存 Token 时相同的用户账号，并应使用绝对 Python 路径，避免调度器找不到虚拟环境。
+工作目录可以是任意目录。计划任务会读取当前操作系统用户保存的 Token 与同行人配置，因此必须使用与 GUI 保存时相同的用户账号；也可以通过环境变量临时覆盖。
 
 推荐每天在 `07:28` 前启动。程序在该时间之前会等待，随后按以下阶段工作：
 
@@ -303,7 +298,7 @@ JLU_BOOKING_CONFIG_FILE=/absolute/path/auto_booking.json
 JLU_BOOKING_RUNTIME_DIR=/absolute/path/runtime
 ```
 
-输出中的 `token_file` 是本机 Token 文件；`event_log` 是阶段切换、锁定、解锁和预约结果等业务事件日志；`request_timing_log` 是独立的接口耗时日志，只包含请求编号、接口名、耗时和结果分类，不保存 Token、学号或请求参数。`runtime/state/` 保存预约成功标记。状态文件按日期、场馆和项目区分。若你在学校系统中取消预约并确实需要重新运行，先确认日期和项目，再只删除对应状态文件。
+输出中的 `token_file` 是本机 Token 文件；`config_file` 包含预约设置和同行人学号。`event_log` 与 `request_timing_log` 不保存 Token、学号或请求参数，成功状态也只记录预约目标。
 
 请求耗时日志格式示例：
 
@@ -333,11 +328,11 @@ python3 -m tkinter
 
 ### 提示缺少 Token
 
-先运行 `jlu-booking-token status` 检查状态。未保存时运行 `jlu-booking-token set`；如果状态显示已保存但计划任务仍提示缺少，请确认计划任务与保存 Token 使用的是同一个操作系统账号。GUI 在需要查询且没有可用 Token 时也会弹出隐藏输入框并保存。
+先运行 `jlu-booking-token status` 检查保存状态。未保存时可在 GUI 中验证保存，或运行 `jlu-booking-token set`。计划任务必须与保存 Token 的 GUI 使用同一个系统用户。
 
 ### 已修改 Token，但程序仍使用旧值
 
-先关闭并重启已经运行的 GUI 或自动任务。如果 `jlu-booking-token status` 显示“当前优先来源：环境变量”，说明 `JLU_BOOKING_TOKEN` 正在覆盖保存值；清除该环境变量或重新打开终端后再运行。
+关闭当前 GUI 或自动任务后，运行 `jlu-booking-token set` 更新保存值，再重新打开程序。如果当前终端仍设置了 `JLU_BOOKING_TOKEN`，它会优先覆盖本机保存值。
 
 ### 一直显示没有可预约场次
 

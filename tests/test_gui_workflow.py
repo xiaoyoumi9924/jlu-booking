@@ -42,6 +42,7 @@ def test_save_and_start_real_booking_launches_without_confirmation(monkeypatch):
     output = []
     opened = []
     processes = []
+    process_options = []
 
     app.append_auto_output = output.append
     app.refresh_auto_process_controls = lambda: None
@@ -59,7 +60,11 @@ def test_save_and_start_real_booking_launches_without_confirmation(monkeypatch):
     )
     monkeypatch.setattr(
         "jlu_booking.gui.subprocess.Popen",
-        lambda *_args, **_kwargs: processes.append(FakeProcess()) or processes[-1],
+        lambda *_args, **kwargs: (
+            process_options.append(kwargs),
+            processes.append(FakeProcess()),
+            processes[-1],
+        )[-1],
     )
     monkeypatch.setattr("jlu_booking.gui.threading.Thread", FakeThread)
 
@@ -67,6 +72,7 @@ def test_save_and_start_real_booking_launches_without_confirmation(monkeypatch):
         "venue": "宋治平体育馆",
         "sport": "排球",
         "target_day": "明天",
+        "companion_student_number": "example-1234",
         "preferred_court_number": 2,
         "time_priority": [["17:30", "19:30"]],
         "real_booking_enabled": True,
@@ -78,6 +84,8 @@ def test_save_and_start_real_booking_launches_without_confirmation(monkeypatch):
     assert app.auto_status_var.get() == "运行中 · 真实预约"
     assert opened == ["live"]
     assert any("GUI 已启动自动任务" in line for line in output)
+    assert process_options[0]["env"]["JLU_BOOKING_TOKEN"] == "validated-token"
+    assert process_options[0]["env"]["JLU_BOOKING_COMPANION"] == "example-1234"
 
 
 def test_auto_booking_mode_is_an_explicit_two_choice_selection():

@@ -61,8 +61,8 @@ def _restrict_permissions(path: Path, mode: int) -> None:
     try:
         path.chmod(mode)
     except OSError:
-        # Some mounted filesystems do not implement chmod. Saving is still useful,
-        # and the CLI documents the exact location so users can inspect it.
+        # Windows uses the current user's AppData ACL. Some mounted POSIX
+        # filesystems do not implement chmod, so saving can still proceed.
         pass
 
 

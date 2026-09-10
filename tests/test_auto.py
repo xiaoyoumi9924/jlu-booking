@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -7,7 +8,6 @@ import pytest
 from jlu_booking import auto
 from jlu_booking.api import ServerResponseError
 from jlu_booking.config import DEFAULT_AUTO_CONFIG, save_auto_config
-from jlu_booking.token_store import save_token
 
 
 def test_priority_prefers_time_before_court_number():
@@ -325,7 +325,15 @@ def test_show_config_uses_readable_chinese_summary(tmp_path, capsys):
         config_path,
     )
 
-    auto.main(["--config", str(config_path), "--show-config"])
+    auto.main(
+        [
+            "--config",
+            str(config_path),
+            "--companion",
+            "example-1234",
+            "--show-config",
+        ]
+    )
     output = capsys.readouterr().out
 
     assert "当前自动预约配置" in output
@@ -348,37 +356,81 @@ def test_show_config_json_remains_available_and_masks_companion(tmp_path, capsys
         config_path,
     )
 
-    auto.main(["--config", str(config_path), "--show-config-json"])
+    auto.main(
+        [
+            "--config",
+            str(config_path),
+            "--companion",
+            "example-1234",
+            "--show-config-json",
+        ]
+    )
     output = json.loads(capsys.readouterr().out)
 
     assert output["companion_student_number"] == "***1234"
     assert output["real_booking_enabled"] is True
 
 
-def test_auto_uses_saved_token_without_prompting(tmp_path, monkeypatch):
+def test_auto_reuses_saved_token_without_prompting(tmp_path, monkeypatch):
     token_path = tmp_path / "token"
-    save_token("saved-example-token", token_path)
+    token_path.write_text("saved-example-token\n", encoding="utf-8")
     monkeypatch.delenv("JLU_BOOKING_TOKEN", raising=False)
     resolve_token = auto.resolve_token
     monkeypatch.setattr(auto, "resolve_token", lambda: resolve_token(token_path))
-
-    def fail_prompt(_prompt):
-        raise AssertionError("saved Token should not prompt")
-
-    monkeypatch.setattr(auto.getpass, "getpass", fail_prompt)
+    monkeypatch.setattr(auto.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(
+        auto.getpass,
+        "getpass",
+        lambda _prompt: (_ for _ in ()).throw(
+            AssertionError("已有保存值时不应再次询问 Token")
+        ),
+    )
 
     assert auto.get_runtime_token() == ("saved-example-token", "saved")
+    assert token_path.exists()
 
 
-def test_auto_prompt_saves_token_for_next_run(monkeypatch):
-    saved = []
+def test_auto_prompt_saves_token_for_future_runs(monkeypatch):
     monkeypatch.setattr(auto, "resolve_token", lambda: ("", "none"))
     monkeypatch.setattr(auto.sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(auto.getpass, "getpass", lambda _prompt: "new-token")
+    saved = []
     monkeypatch.setattr(auto, "save_token", lambda token: saved.append(token))
 
     assert auto.get_runtime_token() == ("new-token", "prompt_saved")
     assert saved == ["new-token"]
+
+
+def test_companion_can_be_supplied_by_process_environment(tmp_path):
+    config_path = tmp_path / "auto_booking.json"
+    save_auto_config(DEFAULT_AUTO_CONFIG, config_path)
+    args = auto.build_arg_parser().parse_args(["--config", str(config_path)])
+
+    settings, _, has_overrides = auto.load_runtime_settings(
+        args,
+        {"JLU_BOOKING_COMPANION": " session-1234 "},
+    )
+
+    assert settings["companion_student_number"] == "session-1234"
+    assert has_overrides is True
+
+
+def test_auto_source_contains_only_gbk_encodable_characters():
+    source = Path(auto.__file__).read_text(encoding="utf-8")
+
+    source.encode("gbk")
+
+
+def test_success_state_contains_no_identity_or_server_payload(tmp_path, monkeypatch):
+    auto.apply_runtime_settings(DEFAULT_AUTO_CONFIG)
+    monkeypatch.setattr(auto, "STATE_DIR", tmp_path)
+
+    auto.save_success_state("2026-09-11", _target())
+
+    payload = json.loads(auto.success_state_path("2026-09-11").read_text("utf-8"))
+    assert "companion_name" not in payload
+    assert "server_result" not in payload
+    assert payload["court_name"] == "羽毛球3"
 
 
 def test_default_auto_run_stops_before_token_when_companion_is_missing(
@@ -553,6 +605,7 @@ def test_real_booking_stops_after_daily_limit_response(
     attempts = []
 
     monkeypatch.setenv("JLU_BOOKING_TOKEN", "example-token")
+    monkeypatch.setenv("JLU_BOOKING_COMPANION", "example-1234")
     monkeypatch.setattr(auto, "existing_success_state_path", lambda _date: None)
     monkeypatch.setattr(
         auto,
