@@ -19,6 +19,8 @@
 
 也可以进入 [Releases 页面](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest) 查看最新版本和更新说明。
 
+> 点击 GitHub 绿色“代码”按钮下载到的 `jlu-booking-main.zip` 是 **main 分支的源码包**，名称正常，但它不是打包软件。普通用户请使用上表中的 Releases 下载链接。
+
 ## 使用步骤
 
 ### 1. 打开程序
@@ -51,6 +53,8 @@ Linux：运行 `JLU Booking`
 ### 2. 第一次粘贴 Token
 
 在企业微信中登录学校体育场馆系统，然后在选择体育馆那个页面停下，点击右上方三个点，然后在浏览器中打开，复制一下网址，其实token就在网址中能体现出来。
+
+每位用户都需要输入自己的 Token。Token 只保存在当前电脑的用户配置目录中，不会写入仓库或打包进 `.exe`、`.app` 和 Linux 软件包。同一台电脑运行不同副本时会复用此前保存的 Token，这是本机配置复用，并不代表下载包携带了发布者的 Token。
 
 
 ### 3. 配置并启动

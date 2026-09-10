@@ -6,6 +6,18 @@
 
 如果凭据已经被提交到 Git 仓库中，应先撤销或刷新该凭据。仅在后续提交中删除文件是不够的，因为该凭据仍然会保留在 Git 历史记录中。
 
+## 本地数据与发布包
+
+Token 保存在当前操作系统用户的配置目录中，权限允许时会限制为仅当前用户可读；自动预约配置和运行日志同样不属于发布包。同一台电脑上的多个 JLU Booking 副本会读取同一份用户配置，因此可能自动复用这台电脑之前保存的 Token，但其他电脑不会获得该 Token。
+
+项目的 PyInstaller 配置只打包程序代码和公开资源，不包含 `config/auto_booking.json`、`runtime/`、Token 文件或日志。CI 和 Release 构建前都会运行：
+
+```bash
+python tools/privacy_check.py
+```
+
+该检查会阻止本机配置、运行数据以及高置信度密钥进入提交或发布流程。
+
 ## 报告安全漏洞
 
 如果漏洞报告中包含敏感信息，请使用 GitHub 的私有安全公告（Private Security Advisory）功能，而不要创建公开 Issue。
