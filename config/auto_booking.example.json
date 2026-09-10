@@ -1,0 +1,26 @@
+{
+  "venue": "前卫体育馆",
+  "sport": "羽毛球",
+  "target_day": "今天",
+  "companion_student_number": "",
+  "preferred_court_number": 3,
+  "real_booking_enabled": false,
+  "time_priority": [
+    [
+      "17:30",
+      "19:30"
+    ],
+    [
+      "15:30",
+      "17:30"
+    ],
+    [
+      "19:30",
+      "21:30"
+    ],
+    [
+      "10:00",
+      "12:00"
+    ]
+  ]
+}

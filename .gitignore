@@ -1,0 +1,47 @@
+# Operating system and IDE metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+credentials.json
+*token_cache*
+
+# Local booking preferences (may contain a student number)
+config/*.json
+!config/*.example.json
+
+# Runtime output and local state
+runtime/
+logs/
+state/
+*.log
+*.pid
+*.lock
+
+# Temporary and editor files
+*.tmp
+*.temp
+*.swp
+*.swo
+~$*

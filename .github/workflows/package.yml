@@ -1,0 +1,54 @@
+name: Package desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+      - run: python -m pip install -e ".[package]"
+      - run: python tools/build_package.py
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path 'dist/JLU Booking' -DestinationPath 'jlu-booking-Windows.zip'
+      - if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent 'dist/JLU Booking.app' 'jlu-booking-macOS.zip'
+      - if: runner.os == 'Linux'
+        run: tar -C dist -czf jlu-booking-Linux.tar.gz 'JLU Booking'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jlu-booking-${{ runner.os }}
+          path: jlu-booking-*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: jlu-booking-*
+          path: release-files
+          merge-multiple: true
+      - name: Publish GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" release-files/* --generate-notes --title "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
