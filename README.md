@@ -19,7 +19,7 @@
 
 也可以进入 [Releases 页面](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest) 查看最新版本和更新说明。
 
-> 点击 GitHub 绿色“代码”按钮下载到的 `jlu-booking-main.zip` 是 **main 分支的源码包**，名称正常，但它不是打包软件。普通用户请使用上表中的 Releases 下载链接。
+
 
 ## 使用步骤
 
