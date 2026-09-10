@@ -16,3 +16,4 @@ def test_repository_privacy_check_passes():
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert (result.stdout + result.stderr).isascii()
