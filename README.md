@@ -30,23 +30,26 @@ macOS：双击 `JLU Booking.app`<br>
 Linux：运行 `JLU Booking`
 
 <details>
-<summary><strong>应用无法打开时：备用方法</strong></summary>
+<summary><strong>应用无法打开？展开查看备用启动方式</strong></summary>
 
-#### 1.pycharm中运行：
+> 以下方法适用于应用无法直接打开的情况。请先下载并解压项目的[源码 ZIP](https://github.com/xiaoyoumi9924/jlu-booking/archive/refs/heads/main.zip)。
 
-1. 下载并解压项目的[源码 ZIP](https://github.com/xiaoyoumi9924/jlu-booking/archive/refs/heads/main.zip)。
-2. 安装 Python 3.10 或更高版本，并用 PyCharm 打开解压后的整个项目文件夹。
-3. 在 PyCharm 中选择一个 Python 3.10+ 解释器。
-4. 找到项目根目录的 `start.py`，右键选择 **Run 'start'**。
+#### 方法一：在 PyCharm 中运行
 
+1. 安装 Python 3.10 或更高版本。
+2. 使用 PyCharm 打开解压后的整个项目文件夹。
+3. 在 PyCharm 中选择一个 Python 3.10 或更高版本的解释器。
+4. 找到项目根目录中的 `start.py`，右键选择 **Run 'start'**。
 
-#### 2.进入文件夹中运行
+#### 方法二：使用系统启动文件
 
-| 使用环境 | 启动文件 | 说明 |
-|---|---|---|
-| Windows | `start.bat` | Windows 系统启动文件 |
-| macOS | `start.command` | macOS 系统启动文件 |
-| Linux | `start.sh` | Linux 系统启动文件 |
+进入解压后的项目文件夹，根据操作系统选择对应的启动文件：
+
+| 操作系统 | 启动文件 | 使用方式 |
+| :--- | :--- | :--- |
+| Windows | `start.bat` | 双击运行 |
+| macOS | `start.command` | 双击运行；首次被拦截时右键选择“打开” |
+| Linux | `start.sh` | 在终端中运行 `bash start.sh` |
 
 </details>
 
