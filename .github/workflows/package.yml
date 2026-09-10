@@ -53,3 +53,4 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" release-files/* --generate-notes --title "$GITHUB_REF_NAME"
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
