@@ -19,7 +19,6 @@
 
 也可以进入 [Releases 页面](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest) 查看最新版本和更新说明。
 
-> 点击 GitHub 绿色“代码”按钮下载到的 `jlu-booking-main.zip` 是 **main 分支的源码包**，名称正常，但它不是打包软件。普通用户请使用上表中的 Releases 下载链接。
 
 ## 使用步骤
 
@@ -73,11 +72,13 @@ Linux：运行 `JLU Booking`
 
 ### 4. 每天定时运行（可选）
 
-先在软件中保存一下预约配置，如果想要电脑每天早上 **07:28 自动启动预约任务**，可以按照自己的操作系统查看对应教程：
+先打包下载一下zip源码文件，如果想要电脑每天早上 **07:28 自动启动预约任务**，可以按照自己的操作系统查看对应教程：
 
 - [Windows 自动运行教程](docs/automation-windows.md)
 - [macOS 自动运行教程](docs/automation-macos.md)
 - [Linux 自动运行教程](docs/automation-linux.md)
+
+  如果认为教程比较复杂，建议把文件丢给Deepseek/ChatGPT，使用ai去辅助完成部署。
 
 ## 目前支持：
 
