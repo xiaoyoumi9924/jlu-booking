@@ -78,8 +78,8 @@ TIMING_LOG_FILE = LOG_DIR / f"{VENUE_NAME}_{SPORT_NAME}_request_timing.log"
 # =========================
 
 START_TIME = dt_time(7, 28, 0)
-CORE_START_TIME = dt_time(7, 29, 50)
-CLOSING_START_TIME = dt_time(7, 33, 30)
+CORE_START_TIME = dt_time(7, 32, 0)
+CLOSING_START_TIME = dt_time(7, 35, 0)
 SALVAGE_START_TIME = dt_time(7, 36, 0)
 STOP_TIME = dt_time(22, 30, 0)
 
@@ -899,12 +899,16 @@ def run_booking_loop(
     token,
     session,
 ):
-    """按 SEARCH / LOCKED / STOP 状态运行分阶段自动预约。"""
+    """运行预热、开放探测和开放后的动态候选轮次。"""
 
     request_id = 0
     last_phase = None
-    warm_candidate = None
+    open_detected = False
     locked_target = None
+    attempted_this_round = set()
+    round_number = 0
+    attempt_number = 0
+    round_active = False
 
     while True:
         now_dt = now_local()
@@ -940,38 +944,26 @@ def run_booking_loop(
                 f"响应后等待 {interval:g} 秒"
             )
 
-            if phase == "salvage":
-                if locked_target is not None:
-                    print(
-                        f"[{now_text()}] 早上抢票阶段结束，"
-                        "已解除锁定并转为每轮重新查询。",
-                        flush=True,
-                    )
-                    log(f"解除锁定 | 进入全天捡漏 | {_target_text(locked_target)}")
+            if phase == "core":
                 locked_target = None
-                warm_candidate = None
-
-            elif (
-                phase in {"core", "closing"}
-                and REAL_BOOKING_ENABLED
-                and locked_target is None
-                and warm_candidate is not None
-            ):
-                locked_target = warm_candidate
-                warm_candidate = None
-                print(
-                    f"[{now_text()}] 已将预热阶段的最新候选目标转为锁定："
-                    f"{_target_text(locked_target)}",
-                    flush=True,
-                )
-                log(f"锁定目标 | 预热候选 | {_target_text(locked_target)}")
+                attempted_this_round.clear()
+                round_active = False
+                attempt_number = 0
+                log("CORE_REFRESH | 丢弃预热候选并重新查询")
+            elif phase == "salvage":
+                locked_target = None
+                attempted_this_round.clear()
+                round_active = False
+                attempt_number = 0
+                open_detected = True
+                log("SALVAGE_REFRESH | 清除锁定并开始动态轮次")
 
             last_phase = phase
 
         request_id += 1
         target = locked_target
 
-        if target is not None and phase in {"core", "closing"}:
+        if target is not None:
             print(
                 f"[{now_text()}] #{request_id:05d} | LOCKED | "
                 f"直接重试：{_target_text(target)}",
@@ -997,6 +989,9 @@ def run_booking_loop(
                     flush=True,
                 )
                 log(f"扫描异常 | {category} | {type(exc).__name__}: {exc}")
+                if is_daily_booking_limit_error(exc):
+                    report_daily_booking_limit(query_date)
+                    return
                 if is_auth_error(exc):
                     print("Token 或登录状态已失效，自动任务已停止。")
                     return
@@ -1009,17 +1004,14 @@ def run_booking_loop(
                 continue
 
             available_slots = extract_available_slots(data)
-            target = (
-                choose_salvage_slot(available_slots)
-                if phase == "salvage"
-                else choose_priority_slot(available_slots)
-            )
+            candidates = sort_booking_candidates(available_slots)
+            target = candidates[0] if candidates else None
 
             if target is None:
                 print(
                     f"[{now_text()}] #{request_id:05d} | "
                     f"{phase_display_name(phase)} | "
-                    f"0 个可预约{SPORT_NAME}场次",
+                    f"0 个可提交{SPORT_NAME}候选",
                     flush=True,
                 )
             else:
@@ -1032,11 +1024,15 @@ def run_booking_loop(
                 )
 
             if phase == "warmup":
-                warm_candidate = target
+                target_text = _target_text(target) if target is not None else "none"
+                log(
+                    f"WARMUP | visible={len(available_slots)} | "
+                    f"valid={len(candidates)} | target={target_text}"
+                )
                 if target is not None:
                     print(
                         f"[{now_text()}] 预热阶段只查询不提交；"
-                        "已刷新最新候选目标。",
+                        "候选不会带入核心阶段。",
                         flush=True,
                     )
                 time.sleep(interval)
@@ -1052,17 +1048,61 @@ def run_booking_loop(
                 time.sleep(interval)
                 continue
 
-            if target is None:
+            if not allow_booking:
                 time.sleep(interval)
                 continue
 
-            if allow_booking and phase in {"core", "closing"}:
+            if not open_detected:
+                if target is None:
+                    log(
+                        f"PREOPEN | visible={len(available_slots)} | "
+                        f"valid={len(candidates)} | target=none"
+                    )
+                    time.sleep(interval)
+                    continue
                 locked_target = target
-                print(
-                    f"[{now_text()}] 已锁定目标：{_target_text(target)}",
-                    flush=True,
+                log(f"PREOPEN | target={_target_text(target)}")
+            else:
+                if not round_active:
+                    round_number += 1
+                    attempt_number = 0
+                    round_active = True
+                    log(f"ROUND_START | round={round_number}")
+
+                eligible = [
+                    slot
+                    for slot in candidates
+                    if candidate_key(slot) not in attempted_this_round
+                ]
+                skipped = len(available_slots) - len(eligible)
+                log(
+                    f"QUERY | round={round_number} | "
+                    f"visible={len(available_slots)} | "
+                    f"eligible={len(eligible)} | skipped={skipped}"
                 )
-                log(f"锁定目标 | 查询命中 | {_target_text(target)}")
+
+                if not eligible:
+                    print(
+                        f"[{now_text()}] 第 {round_number} 轮候选已尝试完；"
+                        f"等待 {interval:g} 秒后开始新一轮。",
+                        flush=True,
+                    )
+                    log(
+                        f"ROUND_END | round={round_number} | "
+                        f"attempted={len(attempted_this_round)}"
+                    )
+                    time.sleep(interval)
+                    attempted_this_round.clear()
+                    locked_target = None
+                    round_active = False
+                    continue
+
+                target = eligible[0]
+                attempt_number += 1
+                log(
+                    f"TRY | round={round_number} | attempt={attempt_number} | "
+                    f"target={_target_text(target)}"
+                )
 
         if not REAL_BOOKING_ENABLED or target is None or not allow_booking:
             time.sleep(interval)
@@ -1078,9 +1118,14 @@ def run_booking_loop(
                 session=session,
                 request_id=request_id,
             ):
+                if not open_detected:
+                    log(
+                        f"OPEN_DETECTED | result=success | "
+                        f"target={_target_text(target)}"
+                    )
                 return
 
-        except BookingOutcomeUnknown as exc:
+        except BookingOutcomeUnknown:
             report_unknown_booking_outcome(query_date, target)
             log(f"任务停止 | 最终提交结果不确定 | {_target_text(target)}")
             return
@@ -1104,60 +1149,89 @@ def run_booking_loop(
 
             if is_rate_limit_error(exc):
                 backoff = max(RATE_LIMIT_INTERVAL, interval)
+                locked_target = target
                 print(
                     f"[{now_text()}] 服务器要求降低频率，"
-                    f"等待 {backoff:g} 秒后继续。",
+                    f"等待 {backoff:g} 秒后重试当前目标。",
                     flush=True,
                 )
-                log(f"预约暂停 | 限流退避 | {_target_text(target)}")
-                if phase == "salvage":
-                    locked_target = None
+                log(
+                    f"RETRY_LOCKED | category=rate_limited | "
+                    f"target={_target_text(target)}"
+                )
                 time.sleep(backoff)
                 continue
 
-            if is_booking_window_error(exc) and phase in {"core", "closing"}:
+            if is_booking_window_error(exc):
                 locked_target = target
                 print(
                     f"[{now_text()}] 尚未到服务器实际开放时间；"
                     f"保持 LOCKED，{interval:g} 秒后直接重试。",
                     flush=True,
                 )
-                log(f"保持锁定 | 尚未开放 | {_target_text(target)}")
+                if open_detected:
+                    log(
+                        f"OPEN_STATE | not_open | "
+                        f"target={_target_text(target)}"
+                    )
+                else:
+                    log(
+                        f"PREOPEN | not_open | "
+                        f"target={_target_text(target)}"
+                    )
                 time.sleep(interval)
                 continue
 
-            if is_target_unavailable_error(exc):
-                locked_target = None
-                print(
-                    f"[{now_text()}] 锁定目标已失效，"
-                    "解除锁定并重新查询。",
-                    flush=True,
-                )
-                log(f"解除锁定 | 目标失效 | {_target_text(target)}")
-                if phase == "salvage":
-                    time.sleep(interval)
-                continue
-
-            if is_transport_error(exc) and phase in {"core", "closing"}:
+            if is_transport_error(exc):
                 locked_target = target
                 print(
                     f"[{now_text()}] 预检网络异常；保持 LOCKED，"
                     f"{interval:g} 秒后直接重试。",
                     flush=True,
                 )
-                log(f"保持锁定 | 预检网络异常 | {_target_text(target)}")
+                log(
+                    f"RETRY_LOCKED | category=transport | "
+                    f"target={_target_text(target)}"
+                )
                 time.sleep(interval)
+                continue
+
+            if isinstance(exc, ServerResponseError):
+                if not open_detected:
+                    open_detected = True
+                    round_number += 1
+                    attempt_number = 0
+                    round_active = True
+                    log(
+                        f"OPEN_DETECTED | result={category} | "
+                        f"target={_target_text(target)}"
+                    )
+                    log(f"ROUND_START | round={round_number}")
+
+                key = candidate_key(target)
+                if key is not None:
+                    attempted_this_round.add(key)
+                locked_target = None
+                print(
+                    f"[{now_text()}] 当前候选明确失败 [{category}]；"
+                    "立即重新查询最新状态。",
+                    flush=True,
+                )
+                log(
+                    f"TARGET_FAILED | round={round_number} | "
+                    f"category={category} | target={_target_text(target)}"
+                )
                 continue
 
             locked_target = None
             print(
-                f"[{now_text()}] 预约尝试失败 [{category}]，"
-                f"将重新查询 | {exc}",
+                f"[{now_text()}] 预约尝试异常 [{category}]，"
+                f"等待 {interval:g} 秒后重新查询 | {exc}",
                 flush=True,
             )
             log(
-                f"预约尝试失败 | {category} | "
-                f"{_target_text(target)} | {exc}"
+                f"预约尝试异常 | {category} | "
+                f"{_target_text(target)} | {type(exc).__name__}: {exc}"
             )
             time.sleep(interval)
 

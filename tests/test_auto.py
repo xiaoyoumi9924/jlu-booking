@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 from jlu_booking import auto
 from jlu_booking.api import ServerResponseError
@@ -88,10 +89,10 @@ def test_scan_phase_boundaries():
     cases = [
         ((7, 27, 59), ("waiting", None)),
         ((7, 28, 0), ("warmup", 0.3)),
-        ((7, 29, 49), ("warmup", 0.3)),
-        ((7, 29, 50), ("core", 0.1)),
-        ((7, 33, 29), ("core", 0.1)),
-        ((7, 33, 30), ("closing", 0.3)),
+        ((7, 31, 59), ("warmup", 0.3)),
+        ((7, 32, 0), ("core", 0.1)),
+        ((7, 34, 59), ("core", 0.1)),
+        ((7, 35, 0), ("closing", 0.3)),
         ((7, 35, 59), ("closing", 0.3)),
         ((7, 36, 0), ("salvage", 10.0)),
         ((22, 29, 59), ("salvage", 10.0)),
@@ -105,16 +106,13 @@ def test_scan_phase_boundaries():
         assert (phase, interval) == expected
 
 
-def _target(court_name="羽毛球3"):
-    return {
-        "court_name": court_name,
-        "place_short_name": "ymq3",
-        "start": "17:30",
-        "end": "19:30",
-    }
+def _target(court_name="羽毛球3", place_short_name=None):
+    if place_short_name is None:
+        place_short_name = f"ymq{court_name[-1]}"
+    return _slot(court_name, place_short_name, "17:30", "19:30")
 
 
-def _prepare_loop_test(monkeypatch, phases, target=None):
+def _prepare_loop_test(monkeypatch, phases):
     settings = {
         **DEFAULT_AUTO_CONFIG,
         "companion_student_number": "example-1234",
@@ -123,6 +121,7 @@ def _prepare_loop_test(monkeypatch, phases, target=None):
     auto.apply_runtime_settings(settings)
     phase_iter = iter(phases)
     sleeps = []
+    event_logs = []
     monkeypatch.setattr(auto, "get_phase", lambda _now: next(phase_iter))
     monkeypatch.setattr(
         auto,
@@ -131,34 +130,47 @@ def _prepare_loop_test(monkeypatch, phases, target=None):
     )
     monkeypatch.setattr(auto.time, "sleep", lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(auto, "log", lambda _message: None)
-    monkeypatch.setattr(auto, "extract_available_slots", lambda _data: [target] if target else [])
-    return sleeps
+    monkeypatch.setattr(auto, "log", event_logs.append)
+    monkeypatch.setattr(auto, "extract_available_slots", lambda data: data)
+    return sleeps, event_logs
 
 
-def test_warmup_only_queries_then_locks_latest_candidate(monkeypatch):
-    target = _target()
-    sleeps = _prepare_loop_test(
+def _install_query_outcomes(monkeypatch, outcomes, queries):
+    outcome_iter = iter(outcomes)
+
+    def query(**kwargs):
+        queries.append(kwargs)
+        outcome = next(outcome_iter)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(auto, "query_courts", query)
+
+
+def test_core_discards_warmup_candidate_and_queries_fresh_state(monkeypatch):
+    warm_target = _target("羽毛球3")
+    fresh_target = _target("羽毛球4")
+    sleeps, _ = _prepare_loop_test(
         monkeypatch,
         [
             ("warmup", 0.3, False),
             ("core", 0.1, True),
         ],
-        target,
     )
     queries = []
     attempts = []
     session = object()
-
-    def query(**kwargs):
-        queries.append(kwargs)
-        return {}
+    _install_query_outcomes(
+        monkeypatch,
+        [[warm_target], [fresh_target]],
+        queries,
+    )
 
     def attempt(**kwargs):
         attempts.append(kwargs)
         return True
 
-    monkeypatch.setattr(auto, "query_courts", query)
     monkeypatch.setattr(auto, "attempt_real_booking", attempt)
 
     auto.run_booking_loop(
@@ -169,8 +181,8 @@ def test_warmup_only_queries_then_locks_latest_candidate(monkeypatch):
         session=session,
     )
 
-    assert len(queries) == 1
-    assert attempts[0]["slot"] == target
+    assert len(queries) == 2
+    assert attempts[0]["slot"] == fresh_target
     assert queries[0]["session"] is session
     assert attempts[0]["session"] is session
     assert sleeps == [0.3]
@@ -178,22 +190,16 @@ def test_warmup_only_queries_then_locks_latest_candidate(monkeypatch):
 
 def test_not_open_error_keeps_lock_and_skips_requery(monkeypatch):
     target = _target()
-    sleeps = _prepare_loop_test(
+    sleeps, event_logs = _prepare_loop_test(
         monkeypatch,
         [
             ("core", 0.1, True),
             ("core", 0.1, True),
         ],
-        target,
     )
     queries = []
     attempts = []
-
-    monkeypatch.setattr(
-        auto,
-        "query_courts",
-        lambda **kwargs: queries.append(kwargs) or {},
-    )
+    _install_query_outcomes(monkeypatch, [[target]], queries)
 
     def attempt(**kwargs):
         attempts.append(kwargs)
@@ -220,32 +226,28 @@ def test_not_open_error_keeps_lock_and_skips_requery(monkeypatch):
     assert len(attempts) == 2
     assert attempts[0]["slot"] == attempts[1]["slot"] == target
     assert sleeps == [0.1]
+    assert any("PREOPEN | not_open" in line for line in event_logs)
+    assert not any("TARGET_FAILED" in line for line in event_logs)
 
 
-def test_unavailable_error_unlocks_and_requeries_immediately(monkeypatch):
+def test_first_explicit_failure_detects_open_and_requeries_immediately(
+    monkeypatch,
+):
     first_target = _target("羽毛球3")
     second_target = _target("羽毛球4")
-    sleeps = _prepare_loop_test(
+    sleeps, event_logs = _prepare_loop_test(
         monkeypatch,
         [
             ("core", 0.1, True),
             ("core", 0.1, True),
         ],
-        first_target,
     )
-    query_targets = iter([first_target, second_target])
     queries = []
     attempts = []
-
-    monkeypatch.setattr(
-        auto,
-        "query_courts",
-        lambda **kwargs: queries.append(kwargs) or {},
-    )
-    monkeypatch.setattr(
-        auto,
-        "extract_available_slots",
-        lambda _data: [next(query_targets)],
+    _install_query_outcomes(
+        monkeypatch,
+        [[first_target, second_target], [first_target, second_target]],
+        queries,
     )
 
     def attempt(**kwargs):
@@ -267,26 +269,23 @@ def test_unavailable_error_unlocks_and_requeries_immediately(monkeypatch):
     assert len(queries) == 2
     assert [item["slot"] for item in attempts] == [first_target, second_target]
     assert sleeps == []
+    assert any("OPEN_DETECTED | result=target_unavailable" in line for line in event_logs)
+    assert any("TARGET_FAILED | round=1" in line for line in event_logs)
 
 
 def test_closing_phase_keeps_lock_and_changes_retry_interval(monkeypatch):
     target = _target()
-    sleeps = _prepare_loop_test(
+    sleeps, _ = _prepare_loop_test(
         monkeypatch,
         [
             ("core", 0.1, True),
             ("closing", 0.3, True),
             ("closing", 0.3, True),
         ],
-        target,
     )
     queries = []
     attempts = []
-    monkeypatch.setattr(
-        auto,
-        "query_courts",
-        lambda **kwargs: queries.append(kwargs) or {},
-    )
+    _install_query_outcomes(monkeypatch, [[target]], queries)
 
     def attempt(**kwargs):
         attempts.append(kwargs)
@@ -312,21 +311,21 @@ def test_closing_phase_keeps_lock_and_changes_retry_interval(monkeypatch):
 
 
 def test_salvage_phase_releases_morning_lock_and_requeries(monkeypatch):
-    target = _target()
-    sleeps = _prepare_loop_test(
+    morning_target = _target("羽毛球3")
+    salvage_target = _target("羽毛球4")
+    sleeps, _ = _prepare_loop_test(
         monkeypatch,
         [
             ("closing", 0.3, True),
             ("salvage", 10.0, True),
         ],
-        target,
     )
     queries = []
     attempts = []
-    monkeypatch.setattr(
-        auto,
-        "query_courts",
-        lambda **kwargs: queries.append(kwargs) or {},
+    _install_query_outcomes(
+        monkeypatch,
+        [[morning_target], [salvage_target]],
+        queries,
     )
 
     def attempt(**kwargs):
@@ -348,8 +347,244 @@ def test_salvage_phase_releases_morning_lock_and_requeries(monkeypatch):
     )
 
     assert len(queries) == 2
-    assert len(attempts) == 2
+    assert [item["slot"] for item in attempts] == [
+        morning_target,
+        salvage_target,
+    ]
     assert sleeps == [0.3]
+
+
+def test_new_candidate_can_join_the_current_round(monkeypatch):
+    first_target = _target("羽毛球3")
+    new_target = _target("羽毛球5")
+    sleeps, event_logs = _prepare_loop_test(
+        monkeypatch,
+        [("core", 0.1, True), ("core", 0.1, True)],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(
+        monkeypatch,
+        [[first_target], [first_target, new_target]],
+        queries,
+    )
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError(
+                {"msg": "fail", "data": "当前时间段宝地已有用户预约"}
+            )
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert [item["slot"] for item in attempts] == [first_target, new_target]
+    assert sleeps == []
+    assert sum("ROUND_START | round=1" in line for line in event_logs) == 1
+
+
+def test_round_exhaustion_waits_then_allows_failed_candidate_again(monkeypatch):
+    target = _target()
+    sleeps, event_logs = _prepare_loop_test(
+        monkeypatch,
+        [
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+        ],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(monkeypatch, [[target], [target], [target]], queries)
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError({"msg": "fail", "data": "该场地已被预约"})
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert [item["slot"] for item in attempts] == [target, target]
+    assert len(queries) == 3
+    assert sleeps == [0.1]
+    assert any("ROUND_END | round=1 | attempted=1" in line for line in event_logs)
+    assert any("ROUND_START | round=2" in line for line in event_logs)
+
+
+def test_open_detected_never_reverts_after_a_late_not_open(monkeypatch):
+    first_target = _target("羽毛球3")
+    next_target = _target("羽毛球4")
+    sleeps, event_logs = _prepare_loop_test(
+        monkeypatch,
+        [
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+        ],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(
+        monkeypatch,
+        [[first_target], [first_target, next_target]],
+        queries,
+    )
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError({"msg": "fail", "data": "该场地已被预约"})
+        if len(attempts) == 2:
+            raise ServerResponseError({"msg": "fail", "data": "预约尚未开放"})
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert [item["slot"] for item in attempts] == [
+        first_target,
+        next_target,
+        next_target,
+    ]
+    assert len(queries) == 2
+    assert sleeps == [0.1]
+    assert sum("OPEN_DETECTED" in line for line in event_logs) == 1
+
+
+def test_query_transport_error_preserves_failed_candidates_in_round(monkeypatch):
+    first_target = _target("羽毛球3")
+    second_target = _target("羽毛球4")
+    sleeps, _ = _prepare_loop_test(
+        monkeypatch,
+        [
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+        ],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(
+        monkeypatch,
+        [
+            [first_target, second_target],
+            requests.ConnectionError("query disconnected"),
+            [first_target, second_target],
+        ],
+        queries,
+    )
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError({"msg": "fail", "data": "该场地已被预约"})
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert [item["slot"] for item in attempts] == [first_target, second_target]
+    assert sleeps == [0.1]
+
+
+def test_rate_limit_and_precheck_transport_keep_the_locked_target(monkeypatch):
+    target = _target()
+    sleeps, _ = _prepare_loop_test(
+        monkeypatch,
+        [
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+        ],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(monkeypatch, [[target]], queries)
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError({"msg": "fail", "data": "请求过于频繁"})
+        if len(attempts) == 2:
+            raise requests.ConnectionError("canBook disconnected")
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert len(queries) == 1
+    assert [item["slot"] for item in attempts] == [target, target, target]
+    assert sleeps == [5.0, 0.1]
+
+
+def test_dynamic_logs_include_counts_without_sensitive_values(monkeypatch):
+    target = _target()
+    invalid_target = {
+        "court_name": "羽毛球4",
+        "start": "17:30",
+        "end": "19:30",
+    }
+    _, event_logs = _prepare_loop_test(
+        monkeypatch,
+        [("salvage", 10.0, True)],
+    )
+    queries = []
+    _install_query_outcomes(monkeypatch, [[target, invalid_target]], queries)
+    monkeypatch.setattr(auto, "attempt_real_booking", lambda **_kwargs: True)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="private-student-name",
+        token="private-example-token",
+        session=object(),
+    )
+
+    combined = "\n".join(event_logs)
+    assert "ROUND_START | round=1" in combined
+    assert "QUERY | round=1 | visible=2 | eligible=1 | skipped=1" in combined
+    assert "TRY | round=1 | attempt=1" in combined
+    assert "private-example-token" not in combined
+    assert "private-student-name" not in combined
 
 
 def test_show_config_uses_readable_chinese_summary(tmp_path, capsys):
