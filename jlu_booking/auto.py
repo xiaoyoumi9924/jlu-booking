@@ -417,30 +417,61 @@ def save_success_state(query_date, slot):
     )
 
 
+def candidate_key(slot):
+    """返回单次运行内的候选唯一标识；无效候选返回 None。"""
+
+    place_short_name = str(slot.get("place_short_name", "")).strip()
+    start = str(slot.get("start", "")).strip()
+    end = str(slot.get("end", "")).strip()
+    if not place_short_name or not start or not end:
+        return None
+    return place_short_name, start, end
+
+
+def _court_number(court_name):
+    matches = re.findall(r"\d+", court_name)
+    return int(matches[-1]) if matches else None
+
+
+def sort_booking_candidates(available_slots):
+    """返回不修改输入的、可提交候选稳定排序副本。"""
+
+    time_ranks = {time_range: index for index, time_range in enumerate(TIME_PRIORITY)}
+
+    def sort_key(slot):
+        start = str(slot.get("start", "")).strip()
+        end = str(slot.get("end", "")).strip()
+        time_range = (start, end)
+        if time_range in time_ranks:
+            time_key = (0, time_ranks[time_range], "", "")
+        else:
+            time_key = (1, len(time_ranks), start, end)
+
+        court_name = str(slot.get("court_name", "")).strip()
+        preferred_rank = 0 if court_name == PREFERRED_COURT_NAME else 1
+        court_number = _court_number(court_name)
+        if court_number is None:
+            court_key = (1, 0)
+        else:
+            court_key = (0, court_number)
+
+        return (
+            *time_key,
+            preferred_rank,
+            *court_key,
+            court_name,
+            str(slot.get("place_short_name", "")).strip(),
+        )
+
+    valid_slots = [
+        slot for slot in available_slots if candidate_key(slot) is not None
+    ]
+    return sorted(valid_slots, key=sort_key)
+
+
 def choose_priority_slot(available_slots):
-    for target_start, target_end in TIME_PRIORITY:
-        same_time_slots = [
-            slot
-            for slot in available_slots
-            if (
-                slot.get("start") == target_start
-                and slot.get("end") == target_end
-            )
-        ]
-
-        if not same_time_slots:
-            continue
-
-        for slot in same_time_slots:
-            if slot.get("court_name") == PREFERRED_COURT_NAME:
-                return slot
-
-        return same_time_slots[0]
-
-    if available_slots:
-        return available_slots[0]
-
-    return None
+    candidates = sort_booking_candidates(available_slots)
+    return candidates[0] if candidates else None
 
 
 def choose_salvage_slot(available_slots):
@@ -523,12 +554,14 @@ def is_target_unavailable_error(exc):
     """判断已锁定的场次是否已失效或被其他人预约。"""
 
     compact = _error_text(exc)
-    return any(
+    has_explicit_unavailable_marker = any(
         marker in compact
         for marker in (
             "已被预约",
             "已被预定",
             "已经预约",
+            "已有用户预约",
+            "下手太晚了",
             "场地已预约",
             "场次已预约",
             "场地已占用",
@@ -541,6 +574,10 @@ def is_target_unavailable_error(exc):
             "场次不存在",
         )
     )
+    asks_to_reselect_target = "请重新选择" in compact and any(
+        marker in compact for marker in ("场地", "场次", "时段", "预约")
+    )
+    return has_explicit_unavailable_marker or asks_to_reselect_target
 
 
 def is_auth_error(exc):

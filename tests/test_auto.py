@@ -10,19 +10,20 @@ from jlu_booking.api import ServerResponseError
 from jlu_booking.config import DEFAULT_AUTO_CONFIG, save_auto_config
 
 
+def _slot(court_name, place_short_name, start, end):
+    return {
+        "court_name": court_name,
+        "place_short_name": place_short_name,
+        "start": start,
+        "end": end,
+    }
+
+
 def test_priority_prefers_time_before_court_number():
     auto.apply_runtime_settings(DEFAULT_AUTO_CONFIG)
     slots = [
-        {
-            "court_name": "羽毛球3",
-            "start": "15:30",
-            "end": "17:30",
-        },
-        {
-            "court_name": "羽毛球2",
-            "start": "17:30",
-            "end": "19:30",
-        },
+        _slot("羽毛球3", "ymq3", "15:30", "17:30"),
+        _slot("羽毛球2", "ymq2", "17:30", "19:30"),
     ]
 
     assert auto.choose_priority_slot(slots) == slots[1]
@@ -31,19 +32,56 @@ def test_priority_prefers_time_before_court_number():
 def test_priority_prefers_selected_court_within_same_time():
     auto.apply_runtime_settings(DEFAULT_AUTO_CONFIG)
     slots = [
-        {
-            "court_name": "羽毛球2",
-            "start": "17:30",
-            "end": "19:30",
-        },
-        {
-            "court_name": "羽毛球3",
-            "start": "17:30",
-            "end": "19:30",
-        },
+        _slot("羽毛球2", "ymq2", "17:30", "19:30"),
+        _slot("羽毛球3", "ymq3", "17:30", "19:30"),
     ]
 
     assert auto.choose_priority_slot(slots) == slots[1]
+
+
+def test_candidates_sort_known_times_before_unknown_times():
+    auto.apply_runtime_settings(DEFAULT_AUTO_CONFIG)
+    slots = [
+        _slot("羽毛球1", "ymq1", "08:00", "09:00"),
+        _slot("羽毛球4", "ymq4", "06:00", "07:30"),
+        _slot("羽毛球2", "ymq2", "05:00", "06:00"),
+    ]
+
+    assert auto.sort_booking_candidates(slots) == [
+        slots[1],
+        slots[2],
+        slots[0],
+    ]
+
+
+def test_unknown_times_are_sorted_chronologically():
+    auto.apply_runtime_settings(DEFAULT_AUTO_CONFIG)
+    slots = [
+        _slot("羽毛球2", "ymq2", "12:30", "13:00"),
+        _slot("羽毛球1", "ymq1", "05:00", "06:00"),
+    ]
+
+    assert auto.sort_booking_candidates(slots) == [slots[1], slots[0]]
+
+
+def test_preferred_court_wins_then_other_courts_sort_by_number():
+    auto.apply_runtime_settings(DEFAULT_AUTO_CONFIG)
+    preferred = _slot("羽毛球3", "ymq3", "17:30", "19:30")
+    court_five = _slot("羽毛球5", "ymq5", "17:30", "19:30")
+    court_one = _slot("羽毛球1", "ymq1", "17:30", "19:30")
+
+    assert auto.sort_booking_candidates(
+        [court_five, preferred, court_one]
+    ) == [preferred, court_one, court_five]
+
+
+def test_candidate_key_requires_a_complete_submission_identity():
+    assert auto.candidate_key(
+        _slot("羽毛球3", "ymq3", "17:30", "19:30")
+    ) == ("ymq3", "17:30", "19:30")
+    assert auto.candidate_key(
+        {"court_name": "羽毛球3", "start": "17:30", "end": "19:30"}
+    ) is None
 
 
 def test_scan_phase_boundaries():
@@ -484,6 +522,28 @@ def test_daily_booking_limit_message_is_terminal():
 def test_booking_error_classification(message, expected):
     error = ServerResponseError({"msg": "fail", "data": message})
     assert auto.classify_booking_error(error) == expected
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "当前时间段宝地已有用户预约",
+        "下手太晚了，该场地已被其他用户预约",
+        "该时段不可预约，请重新选择场地",
+    ],
+)
+def test_new_occupied_messages_are_target_unavailable(message):
+    error = ServerResponseError({"msg": "fail", "data": message})
+
+    assert auto.classify_booking_error(error) == "target_unavailable"
+
+
+def test_please_reselect_alone_is_not_target_unavailable():
+    error = ServerResponseError(
+        {"msg": "fail", "data": "系统繁忙，请重新选择"}
+    )
+
+    assert auto.classify_booking_error(error) == "rate_limited"
 
 
 def test_request_timing_uses_a_separate_log(tmp_path, monkeypatch):
