@@ -1,6 +1,7 @@
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,17 @@ FULL_TIME_PRIORITY = [
 
 def test_default_time_priority_contains_all_seven_slots():
     assert DEFAULT_AUTO_CONFIG["time_priority"] == FULL_TIME_PRIORITY
+
+
+def test_example_config_ships_the_same_complete_time_priority():
+    example_path = (
+        Path(__file__).resolve().parents[1]
+        / "config"
+        / "auto_booking.example.json"
+    )
+    example = json.loads(example_path.read_text(encoding="utf-8"))
+
+    assert example["time_priority"] == FULL_TIME_PRIORITY
 
 
 def test_missing_config_is_created_with_safe_defaults(tmp_path):
