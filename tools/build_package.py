@@ -24,7 +24,7 @@ def main() -> int:
         subprocess.run(command, cwd=PROJECT_DIR, check=True)
     except subprocess.CalledProcessError as exc:
         return exc.returncode
-    print(f"Package build completed: {PROJECT_DIR / 'dist'}")
+    print("Package build completed: dist/")
     return 0
 
 

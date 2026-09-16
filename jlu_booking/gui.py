@@ -2648,14 +2648,17 @@ class BookingApp:
         ).pack(anchor="w")
         tk.Label(
             card,
-            text="每行填写一个时间段，例如 17:30-19:30。重点时间都没有时，仍会接受其他可预约场次。",
+            text=(
+                "每行填写一个时间段，例如 17:30-19:30。程序按顺序选择时间；"
+                "同一时间优先首选场地，其他时间排在最后。"
+            ),
             font=(self.FONT, 8),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(4, 6))
         self.auto_time_text = tk.Text(
             card,
-            height=4,
+            height=7,
             font=(self.FONT_MONO, 10),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CONTROL,

@@ -1,6 +1,7 @@
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,32 @@ from jlu_booking.config import (
     validate_auto_config,
 )
 from jlu_booking.paths import default_config_file, default_runtime_dir
+
+
+FULL_TIME_PRIORITY = [
+    ["17:30", "19:30"],
+    ["15:30", "17:30"],
+    ["19:30", "21:30"],
+    ["10:00", "12:00"],
+    ["13:00", "15:30"],
+    ["07:30", "10:00"],
+    ["06:00", "07:30"],
+]
+
+
+def test_default_time_priority_contains_all_seven_slots():
+    assert DEFAULT_AUTO_CONFIG["time_priority"] == FULL_TIME_PRIORITY
+
+
+def test_example_config_ships_the_same_complete_time_priority():
+    example_path = (
+        Path(__file__).resolve().parents[1]
+        / "config"
+        / "auto_booking.example.json"
+    )
+    example = json.loads(example_path.read_text(encoding="utf-8"))
+
+    assert example["time_priority"] == FULL_TIME_PRIORITY
 
 
 def test_missing_config_is_created_with_safe_defaults(tmp_path):
@@ -89,6 +116,50 @@ def test_load_remembers_companion_student_number(tmp_path):
     persisted = json.loads(config_path.read_text(encoding="utf-8"))
     assert persisted["companion_student_number"] == "legacy-1234"
     assert persisted["real_booking_enabled"] is True
+
+
+def test_load_migrates_legacy_default_and_persists_it(tmp_path):
+    config_path = tmp_path / "auto_booking.json"
+    legacy = {
+        **DEFAULT_AUTO_CONFIG,
+        "time_priority": [
+            ["17:30", "19:30"],
+            ["15:30", "17:30"],
+            ["19:30", "21:30"],
+            ["10:00", "12:00"],
+        ],
+    }
+    config_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = load_auto_config(config_path)
+
+    assert loaded["time_priority"] == FULL_TIME_PRIORITY
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["time_priority"] == FULL_TIME_PRIORITY
+
+
+def test_custom_time_order_is_preserved_before_missing_defaults(tmp_path):
+    config_path = tmp_path / "auto_booking.json"
+    custom = {
+        **DEFAULT_AUTO_CONFIG,
+        "time_priority": [
+            ["06:00", "07:30"],
+            ["17:30", "19:30"],
+        ],
+    }
+    config_path.write_text(json.dumps(custom), encoding="utf-8")
+
+    loaded = load_auto_config(config_path)
+
+    assert loaded["time_priority"] == [
+        ["06:00", "07:30"],
+        ["17:30", "19:30"],
+        ["15:30", "17:30"],
+        ["19:30", "21:30"],
+        ["10:00", "12:00"],
+        ["13:00", "15:30"],
+        ["07:30", "10:00"],
+    ]
 
 
 def test_gui_saved_plan_requires_a_companion_number():
