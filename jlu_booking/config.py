@@ -6,6 +6,20 @@ from pathlib import Path
 from .api import DEFAULT_VENUE, VENUES, get_sports_for_venue
 from .paths import AUTO_CONFIG_FILE
 
+LEGACY_DEFAULT_TIME_PRIORITY = (
+    ("17:30", "19:30"),
+    ("15:30", "17:30"),
+    ("19:30", "21:30"),
+    ("10:00", "12:00"),
+)
+
+DEFAULT_TIME_PRIORITY = (
+    *LEGACY_DEFAULT_TIME_PRIORITY,
+    ("13:00", "15:30"),
+    ("07:30", "10:00"),
+    ("06:00", "07:30"),
+)
+
 DEFAULT_AUTO_CONFIG = {
     "venue": DEFAULT_VENUE,
     "sport": "羽毛球",
@@ -13,12 +27,7 @@ DEFAULT_AUTO_CONFIG = {
     "companion_student_number": "",
     "preferred_court_number": 3,
     "real_booking_enabled": False,
-    "time_priority": [
-        ["17:30", "19:30"],
-        ["15:30", "17:30"],
-        ["19:30", "21:30"],
-        ["10:00", "12:00"],
-    ],
+    "time_priority": [list(item) for item in DEFAULT_TIME_PRIORITY],
 }
 
 _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
@@ -63,6 +72,15 @@ def normalize_time_priority(value):
         if pair not in normalized:
             normalized.append(pair)
 
+    return normalized
+
+
+def _complete_time_priority(value):
+    normalized = normalize_time_priority(value)
+    for start, end in DEFAULT_TIME_PRIORITY:
+        pair = [start, end]
+        if pair not in normalized:
+            normalized.append(pair)
     return normalized
 
 
@@ -111,7 +129,7 @@ def validate_auto_config(config):
             "请先运行 jlu-booking，在左侧打开“自动预约”并完成设置。"
         )
 
-    time_priority = normalize_time_priority(merged.get("time_priority"))
+    time_priority = _complete_time_priority(merged.get("time_priority"))
 
     return {
         "venue": venue,
@@ -143,7 +161,10 @@ def load_auto_config(path=AUTO_CONFIG_FILE, create_if_missing=True):
     if not isinstance(raw, dict):
         return validate_auto_config(raw)
 
-    return validate_auto_config(raw)
+    normalized = validate_auto_config(raw)
+    if raw != normalized:
+        save_auto_config(normalized, path)
+    return normalized
 
 
 def save_auto_config(config, path=AUTO_CONFIG_FILE):
