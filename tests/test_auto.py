@@ -354,6 +354,55 @@ def test_salvage_phase_releases_morning_lock_and_requeries(monkeypatch):
     assert sleeps == [0.3]
 
 
+def test_salvage_allows_only_one_booking_attempt_per_ten_second_tick(
+    monkeypatch,
+):
+    stale_target = _target("羽毛球3")
+    fresh_target = _target("羽毛球5")
+    sleeps, event_logs = _prepare_loop_test(
+        monkeypatch,
+        [
+            ("salvage", 10.0, True),
+            ("salvage", 10.0, True),
+            ("salvage", 10.0, True),
+        ],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(
+        monkeypatch,
+        [
+            [stale_target, fresh_target],
+            [stale_target, fresh_target],
+            [stale_target, fresh_target],
+        ],
+        queries,
+    )
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError(
+                {"msg": "fail", "data": "该场地已被预约"}
+            )
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert [item["slot"] for item in attempts] == [stale_target, fresh_target]
+    assert len(queries) == 3
+    assert sleeps == [10.0]
+    assert any("SALVAGE_REFRESH_ONLY" in line for line in event_logs)
+
+
 def test_new_candidate_can_join_the_current_round(monkeypatch):
     first_target = _target("羽毛球3")
     new_target = _target("羽毛球5")
@@ -392,7 +441,54 @@ def test_new_candidate_can_join_the_current_round(monkeypatch):
     assert sum("ROUND_START | round=1" in line for line in event_logs) == 1
 
 
-def test_round_exhaustion_waits_then_allows_failed_candidate_again(monkeypatch):
+def test_invalidated_candidate_is_not_retried_while_query_still_lists_it(
+    monkeypatch,
+):
+    stale_target = _target()
+    fresh_target = _target("羽毛球5")
+    sleeps, event_logs = _prepare_loop_test(
+        monkeypatch,
+        [
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+            ("core", 0.1, True),
+        ],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(
+        monkeypatch,
+        [[stale_target], [stale_target], [stale_target, fresh_target]],
+        queries,
+    )
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError(
+                {"msg": "fail", "data": "该场地已被预约"}
+            )
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert [item["slot"] for item in attempts] == [stale_target, fresh_target]
+    assert len(queries) == 3
+    assert sleeps == [0.1]
+    assert any("INVALIDATED" in line and "ymq3" in line for line in event_logs)
+
+
+def test_invalidated_candidate_is_reenabled_only_after_disappear_and_reappear(
+    monkeypatch,
+):
     target = _target()
     sleeps, event_logs = _prepare_loop_test(
         monkeypatch,
@@ -404,12 +500,14 @@ def test_round_exhaustion_waits_then_allows_failed_candidate_again(monkeypatch):
     )
     queries = []
     attempts = []
-    _install_query_outcomes(monkeypatch, [[target], [target], [target]], queries)
+    _install_query_outcomes(monkeypatch, [[target], [], [target]], queries)
 
     def attempt(**kwargs):
         attempts.append(kwargs)
         if len(attempts) == 1:
-            raise ServerResponseError({"msg": "fail", "data": "该场地已被预约"})
+            raise ServerResponseError(
+                {"msg": "fail", "data": "当前时间段宝地已有用户预约"}
+            )
         return True
 
     monkeypatch.setattr(auto, "attempt_real_booking", attempt)
@@ -425,8 +523,50 @@ def test_round_exhaustion_waits_then_allows_failed_candidate_again(monkeypatch):
     assert [item["slot"] for item in attempts] == [target, target]
     assert len(queries) == 3
     assert sleeps == [0.1]
-    assert any("ROUND_END | round=1 | attempted=1" in line for line in event_logs)
-    assert any("ROUND_START | round=2" in line for line in event_logs)
+    assert any("INVALIDATED_ABSENT" in line for line in event_logs)
+    assert any("REAPPEARED" in line for line in event_logs)
+
+
+def test_console_try_target_matches_the_slot_actually_submitted(
+    monkeypatch,
+    capsys,
+):
+    stale_target = _target()
+    fresh_target = _target("羽毛球5")
+    _prepare_loop_test(
+        monkeypatch,
+        [("core", 0.1, True), ("core", 0.1, True)],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(
+        monkeypatch,
+        [[stale_target, fresh_target], [stale_target, fresh_target]],
+        queries,
+    )
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServerResponseError(
+                {"msg": "fail", "data": "该场地已被预约"}
+            )
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    output = capsys.readouterr().out
+    assert [item["slot"] for item in attempts] == [stale_target, fresh_target]
+    assert "目标：羽毛球3 17:30-19:30 [ymq3]" in output
+    assert "TRY 1 | 羽毛球5 17:30-19:30 [ymq5]" in output
 
 
 def test_open_detected_never_reverts_after_a_late_not_open(monkeypatch):
@@ -556,6 +696,48 @@ def test_rate_limit_and_precheck_transport_keep_the_locked_target(monkeypatch):
     assert sleeps == [5.0, 0.1]
 
 
+@pytest.mark.parametrize(
+    "first_error",
+    [
+        ServerResponseError({"msg": "fail", "data": "请求过于频繁"}),
+        requests.ConnectionError("canBook disconnected"),
+    ],
+)
+def test_post_open_retryable_error_waits_then_requeries_fresh_state(
+    monkeypatch,
+    first_error,
+):
+    target = _target()
+    sleeps, event_logs = _prepare_loop_test(
+        monkeypatch,
+        [("salvage", 10.0, True), ("salvage", 10.0, True)],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(monkeypatch, [[target], [target]], queries)
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise first_error
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert len(queries) == 2
+    assert [item["slot"] for item in attempts] == [target, target]
+    assert sleeps == [10.0]
+    assert any("RETRY_REFRESH" in line for line in event_logs)
+
+
 def test_dynamic_logs_include_counts_without_sensitive_values(monkeypatch):
     target = _target()
     invalid_target = {
@@ -581,7 +763,10 @@ def test_dynamic_logs_include_counts_without_sensitive_values(monkeypatch):
 
     combined = "\n".join(event_logs)
     assert "ROUND_START | round=1" in combined
-    assert "QUERY | round=1 | visible=2 | eligible=1 | skipped=1" in combined
+    assert (
+        "QUERY | round=1 | visible=2 | invalidated=0 | "
+        "eligible=1 | skipped=1"
+    ) in combined
     assert "TRY | round=1 | attempt=1" in combined
     assert "private-example-token" not in combined
     assert "private-student-name" not in combined

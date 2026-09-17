@@ -428,6 +428,32 @@ def candidate_key(slot):
     return place_short_name, start, end
 
 
+def reconcile_invalidated_candidates(invalidated, visible_keys):
+    """Advance stale candidates only after a successful query state change.
+
+    ``invalidated`` maps candidate keys to whether the key has disappeared
+    from at least one successful query.  A later reappearance releases the
+    key.  Query failures never call this helper and therefore cannot release
+    a stale candidate accidentally.
+    """
+
+    newly_absent = set()
+    reappeared = set()
+
+    for key, absence_seen in list(invalidated.items()):
+        if key in visible_keys:
+            if absence_seen:
+                invalidated.pop(key, None)
+                reappeared.add(key)
+            continue
+
+        if not absence_seen:
+            invalidated[key] = True
+            newly_absent.add(key)
+
+    return newly_absent, reappeared
+
+
 def _court_number(court_name):
     matches = re.findall(r"\d+", court_name)
     return int(matches[-1]) if matches else None
@@ -906,9 +932,11 @@ def run_booking_loop(
     open_detected = False
     locked_target = None
     attempted_this_round = set()
+    invalidated_candidates = {}
     round_number = 0
     attempt_number = 0
     round_active = False
+    salvage_refresh_only = False
 
     while True:
         now_dt = now_local()
@@ -955,6 +983,7 @@ def run_booking_loop(
                 attempted_this_round.clear()
                 round_active = False
                 attempt_number = 0
+                salvage_refresh_only = False
                 open_detected = True
                 log("SALVAGE_REFRESH | 清除锁定并开始动态轮次")
 
@@ -1005,23 +1034,67 @@ def run_booking_loop(
 
             available_slots = extract_available_slots(data)
             candidates = sort_booking_candidates(available_slots)
+            visible_keys = {
+                key
+                for key in (candidate_key(slot) for slot in candidates)
+                if key is not None
+            }
+            newly_absent, reappeared = reconcile_invalidated_candidates(
+                invalidated_candidates,
+                visible_keys,
+            )
+            for key in sorted(newly_absent):
+                log(f"INVALIDATED_ABSENT | key={key}")
+            for key in sorted(reappeared):
+                log(f"REAPPEARED | key={key}")
             target = candidates[0] if candidates else None
 
-            if target is None:
+            if not open_detected:
+                if target is None:
+                    print(
+                        f"[{now_text()}] #{request_id:05d} | "
+                        f"{phase_display_name(phase)} | "
+                        f"0 个可提交{SPORT_NAME}候选",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[{now_text()}] #{request_id:05d} | "
+                        f"{phase_display_name(phase)} | "
+                        f"发现 {len(available_slots)} 个 | "
+                        f"目标：{_target_text(target)}",
+                        flush=True,
+                    )
+
+            if phase == "salvage" and salvage_refresh_only:
+                invalidated_count = sum(
+                    candidate_key(slot) in invalidated_candidates
+                    for slot in candidates
+                )
+                eligible_count = sum(
+                    candidate_key(slot) not in invalidated_candidates
+                    for slot in candidates
+                )
                 print(
-                    f"[{now_text()}] #{request_id:05d} | "
-                    f"{phase_display_name(phase)} | "
-                    f"0 个可提交{SPORT_NAME}候选",
+                    f"[{now_text()}] #{request_id:05d} | REFRESH | "
+                    f"服务器显示 {len(available_slots)} | "
+                    f"已确认失效 {invalidated_count} | "
+                    f"当前可尝试 {eligible_count} | "
+                    f"等待 {interval:g} 秒",
                     flush=True,
                 )
-            else:
-                print(
-                    f"[{now_text()}] #{request_id:05d} | "
-                    f"{phase_display_name(phase)} | "
-                    f"发现 {len(available_slots)} 个 | "
-                    f"目标：{_target_text(target)}",
-                    flush=True,
+                log(
+                    f"SALVAGE_REFRESH_ONLY | visible={len(available_slots)} | "
+                    f"invalidated={invalidated_count} | "
+                    f"eligible={eligible_count}"
                 )
+                time.sleep(interval)
+                salvage_refresh_only = False
+                attempted_this_round.clear()
+                locked_target = None
+                round_active = False
+                attempt_number = 0
+                continue
 
             if phase == "warmup":
                 target_text = _target_text(target) if target is not None else "none"
@@ -1073,11 +1146,24 @@ def run_booking_loop(
                     slot
                     for slot in candidates
                     if candidate_key(slot) not in attempted_this_round
+                    and candidate_key(slot) not in invalidated_candidates
                 ]
+                invalidated_count = sum(
+                    candidate_key(slot) in invalidated_candidates
+                    for slot in candidates
+                )
                 skipped = len(available_slots) - len(eligible)
+                print(
+                    f"[{now_text()}] #{request_id:05d} | QUERY | "
+                    f"服务器显示 {len(available_slots)} | "
+                    f"已确认失效 {invalidated_count} | "
+                    f"当前可尝试 {len(eligible)}",
+                    flush=True,
+                )
                 log(
                     f"QUERY | round={round_number} | "
                     f"visible={len(available_slots)} | "
+                    f"invalidated={invalidated_count} | "
                     f"eligible={len(eligible)} | skipped={skipped}"
                 )
 
@@ -1099,6 +1185,11 @@ def run_booking_loop(
 
                 target = eligible[0]
                 attempt_number += 1
+                print(
+                    f"[{now_text()}] #{request_id:05d} | "
+                    f"TRY {attempt_number} | {_target_text(target)}",
+                    flush=True,
+                )
                 log(
                     f"TRY | round={round_number} | attempt={attempt_number} | "
                     f"target={_target_text(target)}"
@@ -1149,16 +1240,28 @@ def run_booking_loop(
 
             if is_rate_limit_error(exc):
                 backoff = max(RATE_LIMIT_INTERVAL, interval)
-                locked_target = target
-                print(
-                    f"[{now_text()}] 服务器要求降低频率，"
-                    f"等待 {backoff:g} 秒后重试当前目标。",
-                    flush=True,
-                )
-                log(
-                    f"RETRY_LOCKED | category=rate_limited | "
-                    f"target={_target_text(target)}"
-                )
+                if open_detected:
+                    locked_target = None
+                    print(
+                        f"[{now_text()}] 服务器要求降低频率，"
+                        f"等待 {backoff:g} 秒后重新查询。",
+                        flush=True,
+                    )
+                    log(
+                        f"RETRY_REFRESH | category=rate_limited | "
+                        f"target={_target_text(target)}"
+                    )
+                else:
+                    locked_target = target
+                    print(
+                        f"[{now_text()}] 服务器要求降低频率，"
+                        f"等待 {backoff:g} 秒后重试当前目标。",
+                        flush=True,
+                    )
+                    log(
+                        f"RETRY_LOCKED | category=rate_limited | "
+                        f"target={_target_text(target)}"
+                    )
                 time.sleep(backoff)
                 continue
 
@@ -1183,16 +1286,28 @@ def run_booking_loop(
                 continue
 
             if is_transport_error(exc):
-                locked_target = target
-                print(
-                    f"[{now_text()}] 预检网络异常；保持 LOCKED，"
-                    f"{interval:g} 秒后直接重试。",
-                    flush=True,
-                )
-                log(
-                    f"RETRY_LOCKED | category=transport | "
-                    f"target={_target_text(target)}"
-                )
+                if open_detected:
+                    locked_target = None
+                    print(
+                        f"[{now_text()}] 预检网络异常；"
+                        f"等待 {interval:g} 秒后重新查询。",
+                        flush=True,
+                    )
+                    log(
+                        f"RETRY_REFRESH | category=transport | "
+                        f"target={_target_text(target)}"
+                    )
+                else:
+                    locked_target = target
+                    print(
+                        f"[{now_text()}] 预检网络异常；保持 LOCKED，"
+                        f"{interval:g} 秒后直接重试。",
+                        flush=True,
+                    )
+                    log(
+                        f"RETRY_LOCKED | category=transport | "
+                        f"target={_target_text(target)}"
+                    )
                 time.sleep(interval)
                 continue
 
@@ -1211,6 +1326,12 @@ def run_booking_loop(
                 key = candidate_key(target)
                 if key is not None:
                     attempted_this_round.add(key)
+                    if category == "target_unavailable":
+                        invalidated_candidates[key] = False
+                        log(
+                            f"INVALIDATED | round={round_number} | "
+                            f"target={_target_text(target)}"
+                        )
                 locked_target = None
                 print(
                     f"[{now_text()}] 当前候选明确失败 [{category}]；"
@@ -1221,6 +1342,8 @@ def run_booking_loop(
                     f"TARGET_FAILED | round={round_number} | "
                     f"category={category} | target={_target_text(target)}"
                 )
+                if phase == "salvage":
+                    salvage_refresh_only = True
                 continue
 
             locked_target = None
