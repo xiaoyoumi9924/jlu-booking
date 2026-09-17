@@ -45,3 +45,4 @@ TOKEN_FILE = USER_CONFIG_DIR / "token"
 RUNTIME_DIR = default_runtime_dir()
 STATE_DIR = RUNTIME_DIR / "state"
 LOG_DIR = RUNTIME_DIR / "logs"
+RUN_STATUS_FILE = STATE_DIR / "last_run.json"

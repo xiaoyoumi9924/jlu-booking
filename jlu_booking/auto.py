@@ -23,7 +23,8 @@ if __package__:
         query_courts,
     )
     from .config import AUTO_CONFIG_FILE, DEFAULT_AUTO_CONFIG, load_auto_config, validate_auto_config
-    from .paths import LOG_DIR, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from .paths import LOG_DIR, RUN_STATUS_FILE, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from .run_status import RunStatusError, write_run_status
     from .token_store import TokenStoreError, resolve_token, save_token
     from .token_validation import validate_token_online
 else:
@@ -41,7 +42,8 @@ else:
         query_courts,
     )
     from jlu_booking.config import AUTO_CONFIG_FILE, DEFAULT_AUTO_CONFIG, load_auto_config, validate_auto_config
-    from jlu_booking.paths import LOG_DIR, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from jlu_booking.paths import LOG_DIR, RUN_STATUS_FILE, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from jlu_booking.run_status import RunStatusError, write_run_status
     from jlu_booking.token_store import TokenStoreError, resolve_token, save_token
     from jlu_booking.token_validation import validate_token_online
 
@@ -343,6 +345,23 @@ def log(message):
     line = f"{now_local().isoformat()} | {message}\n"
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(line)
+
+
+def update_run_status(status, **fields):
+    """Persist status without ever interrupting the booking process."""
+
+    try:
+        write_run_status(
+            status,
+            venue=VENUE_NAME,
+            sport=SPORT_NAME,
+            **fields,
+        )
+    except (RunStatusError, OSError, ValueError) as exc:
+        try:
+            log(f"STATUS_WRITE_FAILED | {type(exc).__name__}")
+        except OSError:
+            pass
 
 
 def timing_log(request_id, endpoint, elapsed_ms, result):
@@ -985,6 +1004,11 @@ def run_booking_loop(
                 flush=True,
             )
             log("当天停止时间到达 | 未预约成功")
+            update_run_status(
+                "no_result",
+                target_date=query_date,
+                phase="finished",
+            )
             return
 
         if phase != last_phase:
@@ -1002,6 +1026,11 @@ def run_booking_loop(
             log(
                 f"阶段切换 | {phase_display_name(phase)} | "
                 f"响应后等待 {interval:g} 秒"
+            )
+            update_run_status(
+                "running",
+                target_date=query_date,
+                phase=phase,
             )
 
             if phase == "core":
@@ -1246,11 +1275,21 @@ def run_booking_loop(
                         f"OPEN_DETECTED | result=success | "
                         f"target={_target_text(target)}"
                     )
+                update_run_status(
+                    "success",
+                    target_date=query_date,
+                    phase=phase,
+                )
                 return
 
         except BookingOutcomeUnknown:
             report_unknown_booking_outcome(query_date, target)
             log(f"任务停止 | 最终提交结果不确定 | {_target_text(target)}")
+            update_run_status(
+                "submission_unknown",
+                target_date=query_date,
+                phase=phase,
+            )
             return
 
         except Exception as exc:
@@ -1259,6 +1298,11 @@ def run_booking_loop(
             if is_daily_booking_limit_error(exc):
                 report_daily_booking_limit(query_date)
                 log(f"任务停止 | 当天预约次数已用完 | {_target_text(target)}")
+                update_run_status(
+                    "daily_limit",
+                    target_date=query_date,
+                    phase=phase,
+                )
                 return
 
             if is_auth_error(exc):
@@ -1268,6 +1312,11 @@ def run_booking_loop(
                     flush=True,
                 )
                 log(f"任务停止 | 登录失效 | {_target_text(target)}")
+                update_run_status(
+                    "token_invalid",
+                    target_date=query_date,
+                    phase=phase,
+                )
                 return
 
             if is_rate_limit_error(exc):
@@ -1433,6 +1482,7 @@ def main(argv=None):
                     "event_log": str(LOG_FILE),
                     "request_timing_log": str(TIMING_LOG_FILE),
                     "state_dir": str(STATE_DIR),
+                    "run_status_file": str(RUN_STATUS_FILE),
                     "token_file": str(TOKEN_FILE),
                 },
                 ensure_ascii=False,
@@ -1442,9 +1492,19 @@ def main(argv=None):
         return
 
     query_date, target_day_text = resolve_target_date()
+    update_run_status(
+        "starting",
+        target_date=query_date,
+        phase="startup",
+    )
 
     existing_state = existing_success_state_path(query_date)
     if existing_state is not None:
+        update_run_status(
+            "success",
+            target_date=query_date,
+            phase="existing_state",
+        )
         print(
             f"检测到本地已有{target_day_text}{VENUE_NAME}{SPORT_NAME}预约成功记录，"
             "为避免重复预约，本次直接退出。",
@@ -1465,13 +1525,29 @@ def main(argv=None):
         )
     except RuntimeTokenValidationError as exc:
         if exc.status == "invalid":
+            update_run_status(
+                "token_invalid",
+                target_date=query_date,
+                phase="token_check",
+            )
             print("TOKEN_CHECK | invalid")
             print("Token 或登录状态已失效，今日自动任务停止。")
         else:
+            update_run_status(
+                "network_unavailable",
+                target_date=query_date,
+                phase="token_check",
+            )
             print("TOKEN_CHECK | unavailable")
             print("暂时无法向学校系统验证 Token，今日自动任务停止。")
         session.close()
         return
+
+    update_run_status(
+        "running",
+        target_date=query_date,
+        phase="startup",
+    )
 
     print("=" * 72)
     print("吉林大学场馆通用自动预约")
@@ -1577,9 +1653,28 @@ def main(argv=None):
         )
 
     except KeyboardInterrupt:
+        update_run_status(
+            "stopped",
+            target_date=query_date,
+            phase="interrupted",
+        )
         print()
         print("收到 Control+C，程序已停止。")
         log("用户手动停止")
+    except Exception as exc:
+        if is_auth_error(exc):
+            status = "token_invalid"
+        elif is_transport_error(exc):
+            status = "network_unavailable"
+        else:
+            status = "error"
+        update_run_status(
+            status,
+            target_date=query_date,
+            phase="startup",
+            detail=type(exc).__name__,
+        )
+        raise
     finally:
         session.close()
 

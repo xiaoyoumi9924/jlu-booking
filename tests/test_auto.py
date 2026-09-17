@@ -132,8 +132,67 @@ def _prepare_loop_test(monkeypatch, phases):
     monkeypatch.setattr(auto.time, "sleep", lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(auto, "log", event_logs.append)
+    monkeypatch.setattr(auto, "update_run_status", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(auto, "extract_available_slots", lambda data: data)
     return sleeps, event_logs
+
+
+def test_finished_loop_records_no_result_status(monkeypatch):
+    statuses = []
+    monkeypatch.setattr(
+        auto,
+        "get_phase",
+        lambda _now: ("finished", None, False),
+    )
+    monkeypatch.setattr(
+        auto,
+        "now_local",
+        lambda: datetime(2026, 9, 10, 22, 30).astimezone(),
+    )
+    monkeypatch.setattr(
+        auto,
+        "update_run_status",
+        lambda status, **fields: statuses.append((status, fields)),
+    )
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert statuses == [
+        ("no_result", {"target_date": "2026-09-11", "phase": "finished"})
+    ]
+
+
+def test_successful_loop_records_success_status(monkeypatch):
+    target = _target()
+    _prepare_loop_test(monkeypatch, [("core", 0.1, True)])
+    statuses = []
+    queries = []
+    _install_query_outcomes(monkeypatch, [[target]], queries)
+    monkeypatch.setattr(auto, "attempt_real_booking", lambda **_kwargs: True)
+    monkeypatch.setattr(
+        auto,
+        "update_run_status",
+        lambda status, **fields: statuses.append((status, fields)),
+    )
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert statuses == [
+        ("running", {"target_date": "2026-09-11", "phase": "core"}),
+        ("success", {"target_date": "2026-09-11", "phase": "core"}),
+    ]
 
 
 def _install_query_outcomes(monkeypatch, outcomes, queries):
@@ -1088,9 +1147,15 @@ def test_existing_success_state_stops_before_token_lookup(
     monkeypatch,
     capsys,
 ):
+    statuses = []
     config_path = tmp_path / "auto_booking.json"
     save_auto_config(DEFAULT_AUTO_CONFIG, config_path)
     success_path = tmp_path / "success.json"
+    monkeypatch.setattr(
+        auto,
+        "resolve_target_date",
+        lambda: ("2026-09-11", "明天"),
+    )
     monkeypatch.setattr(
         auto,
         "existing_success_state_path",
@@ -1103,12 +1168,75 @@ def test_existing_success_state_stops_before_token_lookup(
             AssertionError("success state must stop before Token lookup")
         ),
     )
+    monkeypatch.setattr(
+        auto,
+        "update_run_status",
+        lambda status, **fields: statuses.append((status, fields)),
+    )
 
     auto.main(["--config", str(config_path)])
     output = capsys.readouterr().out
 
     assert "本次直接退出" in output
     assert str(success_path) in output
+    assert statuses == [
+        ("starting", {"target_date": "2026-09-11", "phase": "startup"}),
+        ("success", {"target_date": "2026-09-11", "phase": "existing_state"}),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("validation_status", "expected_status"),
+    [
+        ("invalid", "token_invalid"),
+        ("unavailable", "network_unavailable"),
+    ],
+)
+def test_main_records_token_validation_failure_status(
+    tmp_path,
+    monkeypatch,
+    validation_status,
+    expected_status,
+):
+    config_path = tmp_path / "auto_booking.json"
+    save_auto_config(
+        {
+            **DEFAULT_AUTO_CONFIG,
+            "companion_student_number": "example-1234",
+        },
+        config_path,
+    )
+    statuses = []
+
+    monkeypatch.setenv("JLU_BOOKING_TOKEN", "example-token")
+    monkeypatch.setattr(
+        auto,
+        "resolve_target_date",
+        lambda: ("2026-09-11", "明天"),
+    )
+    monkeypatch.setattr(auto, "existing_success_state_path", lambda _date: None)
+    monkeypatch.setattr(
+        auto,
+        "validate_runtime_token",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            auto.RuntimeTokenValidationError(validation_status)
+        ),
+    )
+    monkeypatch.setattr(
+        auto,
+        "update_run_status",
+        lambda status, **fields: statuses.append((status, fields)),
+    )
+
+    auto.main(["--config", str(config_path)])
+
+    assert statuses == [
+        ("starting", {"target_date": "2026-09-11", "phase": "startup"}),
+        (
+            expected_status,
+            {"target_date": "2026-09-11", "phase": "token_check"},
+        ),
+    ]
 
 
 def test_real_booking_stops_after_daily_limit_response(
@@ -1156,6 +1284,7 @@ def test_real_booking_stops_after_daily_limit_response(
     monkeypatch.setattr(auto, "extract_available_slots", lambda _data: [target])
     monkeypatch.setattr(auto, "log", lambda message: None)
     monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(auto, "update_run_status", lambda *_args, **_kwargs: None)
 
     def reject_for_daily_limit(**_kwargs):
         attempts.append(True)

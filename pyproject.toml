@@ -31,6 +31,7 @@ package = ["pyinstaller>=6,<7"]
 [project.scripts]
 jlu-booking-auto = "jlu_booking.auto:main"
 jlu-booking-token = "jlu_booking.token_cli:main"
+jlu-booking-status = "jlu_booking.status_cli:main"
 
 [project.gui-scripts]
 jlu-booking = "jlu_booking.__main__:main"
