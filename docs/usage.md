@@ -96,7 +96,14 @@ jlu-booking-token status
 jlu-booking-token set
 ```
 
-Token 失效或需要更换账号时，再运行一次 `jlu-booking-token set`，新值会覆盖旧值。清除保存值：
+`set` 会先用只读查询验证新 Token，验证成功后才原子替换旧值。
+学校明确拒绝或网络暂时不可用时，旧 Token 均保持不变。联网检查当前生效 Token：
+
+```bash
+jlu-booking-token verify
+```
+
+Token 失效或需要更换账号时，再运行一次 `jlu-booking-token set`。清除保存值：
 
 ```bash
 jlu-booking-token clear
@@ -107,6 +114,7 @@ jlu-booking-token clear
 ```bash
 python -m jlu_booking.token_cli status
 python -m jlu_booking.token_cli set
+python -m jlu_booking.token_cli verify
 python -m jlu_booking.token_cli clear
 ```
 
@@ -152,7 +160,7 @@ python -m jlu_booking
 
 主界面可以切换场馆、运动项目和日期，查询可预约时段。真实手动预约需要依次完成同行人验证、可预约检查和最终确认，避免误触直接提交。
 
-首次打开且没有已保存 Token 时，GUI 会显示使用向导。粘贴单独 Token 或完整请求地址后，程序先向学校系统执行只读验证；验证成功才保存，下次打开自动读取。Token 过期时会清除旧值并要求重新输入。
+首次打开且没有已保存 Token 时，GUI 会显示使用向导。粘贴单独 Token 或完整请求地址后，程序先向学校系统执行只读验证；验证成功才保存，下次打开自动读取。学校明确提示 Token 过期时会要求重新输入；单纯网络错误不会删除原有 Token。
 
 左侧的“场地查询”和“自动预约”是两个并列功能选项，当前功能会显示明确的选中状态；点击后只切换右侧内容，不会打开新窗口。左侧场馆也是全局选择：切换场馆后，查询页和自动预约页都会同步到该场馆，并刷新对应的运动项目。
 
@@ -278,13 +286,14 @@ jlu-booking-auto --help
 | 07:28:00–07:32:00 | 预热阶段：每次响应后等待 0.3 秒再查询，只观察候选，不提交，也不把旧候选带入核心阶段 |
 | 07:32:00–07:35:00 | 核心抢票阶段：重新查询最新状态；开放前锁定最高优先候选，响应后等待 0.1 秒重试 |
 | 07:35:00–07:36:00 | 收尾阶段：延续当前状态机，响应后等待 0.3 秒 |
-| 07:36:00–22:30:00 | 全天捡漏：清除早上的锁定和本轮记录，每次响应后等待 10 秒开始新轮次 |
+| 07:36:00–22:30:00 | 全天捡漏：每 10 秒查询一次，每个周期最多对一个新有效候选提交预约 |
 
 开放前，程序只锁定当前最高优先候选；服务器返回“尚未开放”时直接重试该目标，
 不重复查询。第一次收到明确的非“尚未开放”结果后，程序进入动态候选轮次：候选失败
-后立即重新查询服务器，跳过本轮已经明确失败的场次，再从最新结果中选择最优候选。
-最新结果已没有本轮未尝试候选时，程序等待当前阶段间隔并开始新一轮；此前失败的场次
-可以再次参与，因此后来释放的场地不会被永久忽略。任何阶段预约成功后都会立即结束。
+后立即重新查询服务器，跳过已经明确失败的场次，再从最新结果中选择最优候选。
+被服务器明确判定“已被预约”的候选会跨轮次保持失效，即使陈旧查询结果仍显示
+`state=1` 也不会重复提交。只有程序先在一次成功查询中观察到该候选消失，之后它再次出现，
+才会解除屏蔽，因此真正退订释放的场地仍可捡漏。任何阶段预约成功后都会立即结束。
 
 自动任务在一次运行期间共用一个 HTTP Session，使查询、`canBook` 和 `freeBuyPlace` 尽可能复用已建立的连接；仍然只会串行发送一个请求，不会并发堆积。实际周期是“请求耗时 + 表中等待间隔”。限流时会自动退避；如果最终提交已发出但响应不确定，程序会停止重试并提示先手动核对，避免重复提交。操作系统睡眠或关机会中断进程，项目不会尝试修改电源设置。
 
@@ -302,6 +311,12 @@ jlu-booking-auto --help
 jlu-booking-auto --show-paths
 ```
 
+查看最近一次自动任务是否成功、Token 是否失效，或是否遇到网络问题：
+
+```bash
+jlu-booking-status
+```
+
 为兼容旧版，如果项目目录中已经存在 `config/auto_booking.json` 或 `runtime/`，程序会继续使用它们。
 
 可以显式覆盖：
@@ -311,7 +326,9 @@ JLU_BOOKING_CONFIG_FILE=/absolute/path/auto_booking.json
 JLU_BOOKING_RUNTIME_DIR=/absolute/path/runtime
 ```
 
-输出中的 `token_file` 是本机 Token 文件；`config_file` 包含预约设置和同行人学号。`event_log` 与 `request_timing_log` 不保存 Token、学号或请求参数，成功状态也只记录预约目标。
+输出中的 `token_file` 是本机 Token 文件；`config_file` 包含预约设置和同行人学号；
+`run_status_file` 只保存不含隐私的最近一次任务状态。`event_log` 与 `request_timing_log`
+不保存 Token、学号或请求参数，成功状态也只记录预约目标。
 
 请求耗时日志格式示例：
 
@@ -341,7 +358,9 @@ python3 -m tkinter
 
 ### 提示缺少 Token
 
-先运行 `jlu-booking-token status` 检查保存状态。未保存时可在 GUI 中验证保存，或运行 `jlu-booking-token set`。计划任务必须与保存 Token 的 GUI 使用同一个系统用户。
+先运行 `jlu-booking-token status` 检查保存状态，再用 `jlu-booking-token verify`
+联网检查是否有效。未保存时可在 GUI 中验证保存，或运行 `jlu-booking-token set`。
+计划任务必须与保存 Token 的 GUI 使用同一个系统用户。
 
 ### 已修改 Token，但程序仍使用旧值
 

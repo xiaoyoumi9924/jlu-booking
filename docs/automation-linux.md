@@ -23,6 +23,14 @@ Token 文件和预约配置只属于当前用户，不会进入发布包或 Git 
 
 ```bash
 jlu-booking-token status
+jlu-booking-token verify
 jlu-booking-token set
 jlu-booking-token clear
+```
+
+`set` 只会在学校系统验证通过后替换旧 Token；无效 Token 或临时网络错误不会覆盖旧值。
+定时任务运行后可查看最近结果：
+
+```bash
+jlu-booking-status
 ```

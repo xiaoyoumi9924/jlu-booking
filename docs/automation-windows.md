@@ -24,6 +24,14 @@ JLU Booking 会把已验证的 Token 与同行人学工号保存在当前 Window
 
 ```powershell
 jlu-booking-token status
+jlu-booking-token verify
 jlu-booking-token set
 jlu-booking-token clear
+```
+
+`set` 只会在学校系统验证通过后替换旧 Token；无效 Token 或临时网络错误不会覆盖旧值。
+计划任务运行后可查看最近结果：
+
+```powershell
+jlu-booking-status
 ```
