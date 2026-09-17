@@ -92,4 +92,3 @@ def validate_token_online(
         return TokenValidationResult("unavailable", reason)
 
     return TokenValidationResult("valid", "accepted")
-

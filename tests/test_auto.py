@@ -195,6 +195,47 @@ def test_successful_loop_records_success_status(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize(
+    ("server_message", "expected_status"),
+    [
+        ("Token已失效，请重新登录", "token_invalid"),
+        ("当天最大预约次数：1次，剩余预约次数：0次", "daily_limit"),
+    ],
+)
+def test_terminal_query_failure_records_run_status(
+    monkeypatch,
+    server_message,
+    expected_status,
+):
+    _prepare_loop_test(monkeypatch, [("core", 0.1, True)])
+    statuses = []
+    monkeypatch.setattr(
+        auto,
+        "query_courts",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ServerResponseError({"msg": "fail", "data": server_message})
+        ),
+    )
+    monkeypatch.setattr(
+        auto,
+        "update_run_status",
+        lambda status, **fields: statuses.append((status, fields)),
+    )
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert statuses == [
+        ("running", {"target_date": "2026-09-11", "phase": "core"}),
+        (expected_status, {"target_date": "2026-09-11", "phase": "core"}),
+    ]
+
+
 def _install_query_outcomes(monkeypatch, outcomes, queries):
     outcome_iter = iter(outcomes)
 
@@ -1003,6 +1044,7 @@ def test_default_auto_run_stops_before_token_when_companion_is_missing(
     tmp_path,
     monkeypatch,
 ):
+    statuses = []
     config_path = tmp_path / "auto_booking.json"
     save_auto_config(DEFAULT_AUTO_CONFIG, config_path)
 
@@ -1010,6 +1052,16 @@ def test_default_auto_run_stops_before_token_when_companion_is_missing(
         raise AssertionError("incomplete settings must stop before reading Token")
 
     monkeypatch.setattr(auto, "get_runtime_token", fail_token_read)
+    monkeypatch.setattr(
+        auto,
+        "resolve_target_date",
+        lambda: ("2026-09-11", "明天"),
+    )
+    monkeypatch.setattr(
+        auto,
+        "update_run_status",
+        lambda status, **fields: statuses.append((status, fields)),
+    )
 
     with pytest.raises(SystemExit) as exc_info:
         auto.main(["--config", str(config_path)])
@@ -1019,6 +1071,10 @@ def test_default_auto_run_stops_before_token_when_companion_is_missing(
     assert "同行人学工号为空" in message
     assert "jlu-booking" in message
     assert "--dry-run" in message
+    assert statuses == [
+        ("starting", {"target_date": "2026-09-11", "phase": "startup"}),
+        ("error", {"target_date": "2026-09-11", "phase": "configuration"}),
+    ]
 
 
 def test_explicit_dry_run_allows_missing_companion():

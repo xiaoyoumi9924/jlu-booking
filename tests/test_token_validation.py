@@ -52,6 +52,15 @@ def test_read_only_token_validation_treats_network_failure_as_unavailable(
     assert result.reason == "transport"
 
 
+def test_read_only_token_validation_treats_http_failure_as_unavailable(
+    monkeypatch,
+):
+    result, _ = _validate(monkeypatch, requests.HTTPError("503 unavailable"))
+
+    assert result.status == "unavailable"
+    assert result.reason == "transport"
+
+
 def test_read_only_token_validation_does_not_call_generic_rejection_invalid(
     monkeypatch,
 ):
@@ -62,4 +71,3 @@ def test_read_only_token_validation_does_not_call_generic_rejection_invalid(
 
     assert result.status == "unavailable"
     assert result.reason == "server_rejected"
-

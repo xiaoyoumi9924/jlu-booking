@@ -53,4 +53,3 @@ def main(argv=None, *, status_path=RUN_STATUS_FILE):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

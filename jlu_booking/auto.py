@@ -1081,9 +1081,19 @@ def run_booking_loop(
                 log(f"扫描异常 | {category} | {type(exc).__name__}: {exc}")
                 if is_daily_booking_limit_error(exc):
                     report_daily_booking_limit(query_date)
+                    update_run_status(
+                        "daily_limit",
+                        target_date=query_date,
+                        phase=phase,
+                    )
                     return
                 if is_auth_error(exc):
                     print("Token 或登录状态已失效，自动任务已停止。")
+                    update_run_status(
+                        "token_invalid",
+                        target_date=query_date,
+                        phase=phase,
+                    )
                     return
                 delay = (
                     max(RATE_LIMIT_INTERVAL, interval)
@@ -1513,8 +1523,16 @@ def main(argv=None):
         print(f"状态文件：{existing_state}")
         return
 
-    ensure_auto_run_ready(settings, explicit_dry_run=args.dry_run)
-    token, token_source = get_runtime_token()
+    try:
+        ensure_auto_run_ready(settings, explicit_dry_run=args.dry_run)
+        token, token_source = get_runtime_token()
+    except SystemExit:
+        update_run_status(
+            "error",
+            target_date=query_date,
+            phase="configuration",
+        )
+        raise
     session = requests.Session()
     try:
         token_source = validate_runtime_token(

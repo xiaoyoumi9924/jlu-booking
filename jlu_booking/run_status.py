@@ -96,4 +96,3 @@ def load_run_status(path=RUN_STATUS_FILE):
     if not isinstance(payload, dict) or payload.get("status") not in ALLOWED_STATUSES:
         raise RunStatusError(f"运行状态文件损坏：{target}")
     return payload
-
