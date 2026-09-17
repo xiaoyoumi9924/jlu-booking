@@ -9,6 +9,7 @@ import requests
 from jlu_booking import auto
 from jlu_booking.api import ServerResponseError
 from jlu_booking.config import DEFAULT_AUTO_CONFIG, save_auto_config
+from jlu_booking.token_validation import TokenValidationResult
 
 
 def _slot(court_name, place_short_name, start, end):
@@ -848,15 +849,63 @@ def test_auto_reuses_saved_token_without_prompting(tmp_path, monkeypatch):
     assert token_path.exists()
 
 
-def test_auto_prompt_saves_token_for_future_runs(monkeypatch):
+def test_auto_prompt_defers_saving_until_online_validation(monkeypatch):
     monkeypatch.setattr(auto, "resolve_token", lambda: ("", "none"))
     monkeypatch.setattr(auto.sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(auto.getpass, "getpass", lambda _prompt: "new-token")
     saved = []
     monkeypatch.setattr(auto, "save_token", lambda token: saved.append(token))
 
-    assert auto.get_runtime_token() == ("new-token", "prompt_saved")
+    assert auto.get_runtime_token() == ("new-token", "prompt")
+    assert saved == []
+
+
+def test_runtime_token_is_saved_only_after_successful_online_validation(
+    monkeypatch,
+):
+    saved = []
+    event_logs = []
+    monkeypatch.setattr(
+        auto,
+        "validate_token_online",
+        lambda *_args, **_kwargs: TokenValidationResult("valid", "accepted"),
+    )
+    monkeypatch.setattr(auto, "save_token", lambda token: saved.append(token))
+    monkeypatch.setattr(auto, "log", event_logs.append)
+
+    source = auto.validate_runtime_token(
+        "new-token",
+        "prompt",
+        query_date="2026-09-18",
+        session=object(),
+    )
+
+    assert source == "prompt_saved"
     assert saved == ["new-token"]
+    assert event_logs == ["TOKEN_CHECK | valid"]
+
+
+@pytest.mark.parametrize("status", ["invalid", "unavailable"])
+def test_runtime_token_failure_is_classified_without_saving(monkeypatch, status):
+    saved = []
+    monkeypatch.setattr(
+        auto,
+        "validate_token_online",
+        lambda *_args, **_kwargs: TokenValidationResult(status, "test"),
+    )
+    monkeypatch.setattr(auto, "save_token", lambda token: saved.append(token))
+    monkeypatch.setattr(auto, "log", lambda _message: None)
+
+    with pytest.raises(auto.RuntimeTokenValidationError) as exc_info:
+        auto.validate_runtime_token(
+            "new-token",
+            "prompt",
+            query_date="2026-09-18",
+            session=object(),
+        )
+
+    assert exc_info.value.status == status
+    assert saved == []
 
 
 def test_companion_can_be_supplied_by_process_environment(tmp_path):
@@ -1086,6 +1135,11 @@ def test_real_booking_stops_after_daily_limit_response(
 
     monkeypatch.setenv("JLU_BOOKING_TOKEN", "example-token")
     monkeypatch.setenv("JLU_BOOKING_COMPANION", "example-1234")
+    monkeypatch.setattr(
+        auto,
+        "validate_token_online",
+        lambda *_args, **_kwargs: TokenValidationResult("valid", "accepted"),
+    )
     monkeypatch.setattr(auto, "existing_success_state_path", lambda _date: None)
     monkeypatch.setattr(
         auto,

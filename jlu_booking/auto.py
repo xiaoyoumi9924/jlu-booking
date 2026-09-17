@@ -25,6 +25,7 @@ if __package__:
     from .config import AUTO_CONFIG_FILE, DEFAULT_AUTO_CONFIG, load_auto_config, validate_auto_config
     from .paths import LOG_DIR, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
     from .token_store import TokenStoreError, resolve_token, save_token
+    from .token_validation import validate_token_online
 else:
     # 兼容 `python jlu_booking/auto.py` 这种按文件运行的方式。
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -42,6 +43,7 @@ else:
     from jlu_booking.config import AUTO_CONFIG_FILE, DEFAULT_AUTO_CONFIG, load_auto_config, validate_auto_config
     from jlu_booking.paths import LOG_DIR, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
     from jlu_booking.token_store import TokenStoreError, resolve_token, save_token
+    from jlu_booking.token_validation import validate_token_online
 
 
 # ============================================================
@@ -92,6 +94,14 @@ RATE_LIMIT_INTERVAL = 5.0
 
 class BookingOutcomeUnknown(RuntimeError):
     """最终提交已发出，但客户端无法确认服务器是否已经执行。"""
+
+
+class RuntimeTokenValidationError(RuntimeError):
+    """The effective Token was rejected or could not be checked safely."""
+
+    def __init__(self, status):
+        self.status = status
+        super().__init__(status)
 
 
 def configure_text_output(streams=None):
@@ -860,15 +870,6 @@ def get_runtime_token():
         ).strip()
         if token:
             token_source = "prompt"
-            try:
-                save_token(token)
-                token_source = "prompt_saved"
-            except (TokenStoreError, ValueError) as exc:
-                print(
-                    "警告：Token 本次仍可使用，但未能保存到本机。"
-                    f"\n{exc}",
-                    file=sys.stderr,
-                )
 
     if not token:
         raise SystemExit(
@@ -878,6 +879,37 @@ def get_runtime_token():
         )
 
     return token, token_source
+
+
+def validate_runtime_token(token, token_source, *, query_date, session):
+    """Validate the effective Token and save a prompted value only if valid."""
+
+    result = validate_token_online(
+        token,
+        query_date=query_date,
+        venue_name=VENUE_NAME,
+        sport_name=SPORT_NAME,
+        session=session,
+    )
+    log(f"TOKEN_CHECK | {result.status}")
+
+    if result.status != "valid":
+        raise RuntimeTokenValidationError(result.status)
+
+    if token_source != "prompt":
+        return token_source
+
+    try:
+        save_token(token)
+    except (TokenStoreError, ValueError) as exc:
+        print(
+            "警告：Token 已验证且本次可使用，但未能保存到本机。"
+            f"\n{exc}",
+            file=sys.stderr,
+        )
+        return "prompt"
+
+    return "prompt_saved"
 
 
 def ensure_auto_run_ready(settings, *, explicit_dry_run=False):
@@ -1423,6 +1455,23 @@ def main(argv=None):
 
     ensure_auto_run_ready(settings, explicit_dry_run=args.dry_run)
     token, token_source = get_runtime_token()
+    session = requests.Session()
+    try:
+        token_source = validate_runtime_token(
+            token,
+            token_source,
+            query_date=query_date,
+            session=session,
+        )
+    except RuntimeTokenValidationError as exc:
+        if exc.status == "invalid":
+            print("TOKEN_CHECK | invalid")
+            print("Token 或登录状态已失效，今日自动任务停止。")
+        else:
+            print("TOKEN_CHECK | unavailable")
+            print("暂时无法向学校系统验证 Token，今日自动任务停止。")
+        session.close()
+        return
 
     print("=" * 72)
     print("吉林大学场馆通用自动预约")
@@ -1479,7 +1528,6 @@ def main(argv=None):
     print("=" * 72)
     print()
 
-    session = requests.Session()
     try:
         companion_id = None
         companion_name = "未配置"
