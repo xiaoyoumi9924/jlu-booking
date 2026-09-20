@@ -78,15 +78,16 @@ TIMING_LOG_FILE = LOG_DIR / f"{VENUE_NAME}_{SPORT_NAME}_request_timing.log"
 # =========================
 
 START_TIME = dt_time(7, 28, 0)
-CORE_START_TIME = dt_time(7, 32, 0)
-CLOSING_START_TIME = dt_time(7, 35, 0)
-SALVAGE_START_TIME = dt_time(7, 36, 0)
-STOP_TIME = dt_time(22, 30, 0)
+CORE_START_TIME = dt_time(7, 29, 55)
+CLOSING_START_TIME = dt_time(7, 33, 0)
+
+# 收尾阶段结束时间。全天捡漏已关闭，到达该时间后当天任务直接结束，
+# 不再像旧版本那样继续扫描到 22:30。
+FINISH_TIME = dt_time(7, 36, 0)
 
 WARMUP_INTERVAL = 0.3
 CORE_INTERVAL = 0.1
 CLOSING_INTERVAL = 0.3
-SALVAGE_INTERVAL = 10.0
 RATE_LIMIT_INTERVAL = 5.0
 
 
@@ -474,20 +475,6 @@ def choose_priority_slot(available_slots):
     return candidates[0] if candidates else None
 
 
-def choose_salvage_slot(available_slots):
-    """
-    07:36 之后的全天捡漏也遵循与早上抢场相同的优先级：
-
-    1. 按 TIME_PRIORITY 从前到后选择时间段；
-    2. 每个重点时间段内优先 PREFERRED_COURT_NAME；
-    3. 首选场地不可用时，接受同时间段其他场地；
-    4. 所有重点时间都没有时，再接受其他任意可预约场次。
-
-    这样早上抢场和全天捡漏只维护同一套优先级规则。
-    """
-    return choose_priority_slot(available_slots)
-
-
 def _error_text(exc):
     if isinstance(exc, ServerResponseError):
         response = exc.result
@@ -680,11 +667,8 @@ def get_phase(now_dt):
     if CORE_START_TIME <= t < CLOSING_START_TIME:
         return "core", CORE_INTERVAL, True
 
-    if CLOSING_START_TIME <= t < SALVAGE_START_TIME:
+    if CLOSING_START_TIME <= t < FINISH_TIME:
         return "closing", CLOSING_INTERVAL, True
-
-    if SALVAGE_START_TIME <= t < STOP_TIME:
-        return "salvage", SALVAGE_INTERVAL, True
 
     return "finished", None, False
 
@@ -695,7 +679,6 @@ def phase_display_name(phase):
         "warmup": "预热阶段",
         "core": "核心抢票阶段",
         "closing": "收尾阶段",
-        "salvage": "全天捡漏",
         "finished": "当天任务结束",
     }[phase]
 
@@ -950,13 +933,6 @@ def run_booking_loop(
                 round_active = False
                 attempt_number = 0
                 log("CORE_REFRESH | 丢弃预热候选并重新查询")
-            elif phase == "salvage":
-                locked_target = None
-                attempted_this_round.clear()
-                round_active = False
-                attempt_number = 0
-                open_detected = True
-                log("SALVAGE_REFRESH | 清除锁定并开始动态轮次")
 
             last_phase = phase
 
@@ -1337,9 +1313,13 @@ def main(argv=None):
         "没有则选择同时间段其他场地"
     )
     print(
-        f"07:36 后：继续按相同时间/场地优先级捡漏，"
-        f"每 {SALVAGE_INTERVAL:g} 秒扫描一次"
+        "阶段安排："
+        f"{START_TIME:%H:%M:%S} 预热 → "
+        f"{CORE_START_TIME:%H:%M:%S} 核心 → "
+        f"{CLOSING_START_TIME:%H:%M:%S} 收尾 → "
+        f"{FINISH_TIME:%H:%M:%S} 结束"
     )
+    print("全天捡漏：已关闭；收尾阶段结束后当天任务不再继续运行")
     print(f"事件日志：{LOG_FILE}")
     print(f"请求耗时日志：{TIMING_LOG_FILE}")
     print(

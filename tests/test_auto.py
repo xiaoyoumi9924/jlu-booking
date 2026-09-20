@@ -89,13 +89,14 @@ def test_scan_phase_boundaries():
     cases = [
         ((7, 27, 59), ("waiting", None)),
         ((7, 28, 0), ("warmup", 0.3)),
-        ((7, 31, 59), ("warmup", 0.3)),
-        ((7, 32, 0), ("core", 0.1)),
-        ((7, 34, 59), ("core", 0.1)),
-        ((7, 35, 0), ("closing", 0.3)),
+        ((7, 29, 54), ("warmup", 0.3)),
+        ((7, 29, 55), ("core", 0.1)),
+        ((7, 32, 59), ("core", 0.1)),
+        ((7, 33, 0), ("closing", 0.3)),
         ((7, 35, 59), ("closing", 0.3)),
-        ((7, 36, 0), ("salvage", 10.0)),
-        ((22, 29, 59), ("salvage", 10.0)),
+        # 全天捡漏已关闭：收尾结束后直接进入当天结束。
+        ((7, 36, 0), ("finished", None)),
+        ((22, 29, 59), ("finished", None)),
         ((22, 30, 0), ("finished", None)),
     ]
 
@@ -104,6 +105,29 @@ def test_scan_phase_boundaries():
             datetime(2026, 1, 1, hour, minute, second)
         )
         assert (phase, interval) == expected
+
+
+def test_no_salvage_phase_at_any_time_of_day():
+    """全天捡漏已关闭：一天中任何时刻都不应再出现 salvage 阶段。"""
+
+    seen = set()
+    for hour in range(24):
+        for minute in range(60):
+            phase, _, _ = auto.get_phase(datetime(2026, 1, 1, hour, minute, 0))
+            seen.add(phase)
+
+    assert "salvage" not in seen
+    assert seen == {"waiting", "warmup", "core", "closing", "finished"}
+
+    # 07:36 之后不再有任何允许提交预约的阶段。
+    for hour in range(7, 24):
+        for minute in range(60):
+            if (hour, minute) < (7, 36):
+                continue
+            phase, interval, allow_booking = auto.get_phase(
+                datetime(2026, 1, 1, hour, minute, 0)
+            )
+            assert (phase, interval, allow_booking) == ("finished", None, False)
 
 
 def _target(court_name="羽毛球3", place_short_name=None):
@@ -310,30 +334,57 @@ def test_closing_phase_keeps_lock_and_changes_retry_interval(monkeypatch):
     assert sleeps == [0.1, 0.3]
 
 
-def test_salvage_phase_releases_morning_lock_and_requeries(monkeypatch):
+def test_finished_phase_ends_the_day_without_salvage(monkeypatch):
+    """全天捡漏已关闭：收尾阶段结束后当天任务立即结束，不再继续扫描。"""
+
     morning_target = _target("羽毛球3")
-    salvage_target = _target("羽毛球4")
-    sleeps, _ = _prepare_loop_test(
+    sleeps, event_logs = _prepare_loop_test(
         monkeypatch,
         [
             ("closing", 0.3, True),
-            ("salvage", 10.0, True),
+            ("finished", None, False),
         ],
     )
     queries = []
     attempts = []
-    _install_query_outcomes(
-        monkeypatch,
-        [[morning_target], [salvage_target]],
-        queries,
-    )
+    _install_query_outcomes(monkeypatch, [[morning_target]], queries)
 
     def attempt(**kwargs):
         attempts.append(kwargs)
-        if len(attempts) == 1:
-            raise ServerResponseError(
-                {"msg": "fail", "data": "预约尚未开放"}
-            )
+        raise ServerResponseError(
+            {"msg": "fail", "data": "预约尚未开放"}
+        )
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11",
+        companion_id=123,
+        companion_name="示例用户",
+        token="example-token",
+        session=object(),
+    )
+
+    assert len(queries) == 1
+    assert [item["slot"] for item in attempts] == [morning_target]
+    assert sleeps == [0.3]
+    assert "当天停止时间到达 | 未预约成功" in "\n".join(event_logs)
+
+
+def test_closing_phase_can_still_book(monkeypatch):
+    """收尾阶段（07:33-07:36）仍然允许真实提交，关闭捡漏不影响它。"""
+
+    target = _target("羽毛球3")
+    sleeps, _ = _prepare_loop_test(
+        monkeypatch,
+        [("closing", 0.3, True)],
+    )
+    queries = []
+    attempts = []
+    _install_query_outcomes(monkeypatch, [[target]], queries)
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
         return True
 
     monkeypatch.setattr(auto, "attempt_real_booking", attempt)
@@ -346,12 +397,9 @@ def test_salvage_phase_releases_morning_lock_and_requeries(monkeypatch):
         session=object(),
     )
 
-    assert len(queries) == 2
-    assert [item["slot"] for item in attempts] == [
-        morning_target,
-        salvage_target,
-    ]
-    assert sleeps == [0.3]
+    assert len(queries) == 1
+    assert [item["slot"] for item in attempts] == [target]
+    assert sleeps == []
 
 
 def test_new_candidate_can_join_the_current_round(monkeypatch):
@@ -557,7 +605,8 @@ def test_rate_limit_and_precheck_transport_keep_the_locked_target(monkeypatch):
 
 
 def test_dynamic_logs_include_counts_without_sensitive_values(monkeypatch):
-    target = _target()
+    first_target = _target("羽毛球3")
+    second_target = _target("羽毛球5")
     invalid_target = {
         "court_name": "羽毛球4",
         "start": "17:30",
@@ -565,11 +614,26 @@ def test_dynamic_logs_include_counts_without_sensitive_values(monkeypatch):
     }
     _, event_logs = _prepare_loop_test(
         monkeypatch,
-        [("salvage", 10.0, True)],
+        [("core", 0.1, True), ("core", 0.1, True)],
     )
     queries = []
-    _install_query_outcomes(monkeypatch, [[target, invalid_target]], queries)
-    monkeypatch.setattr(auto, "attempt_real_booking", lambda **_kwargs: True)
+    _install_query_outcomes(
+        monkeypatch,
+        [[first_target], [first_target, second_target, invalid_target]],
+        queries,
+    )
+    attempts = []
+
+    def attempt(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            # 第一个候选明确失败即视为开放，进入动态候选轮次。
+            raise ServerResponseError(
+                {"msg": "fail", "data": "当前时间段宝地已有用户预约"}
+            )
+        return True
+
+    monkeypatch.setattr(auto, "attempt_real_booking", attempt)
 
     auto.run_booking_loop(
         query_date="2026-09-11",
@@ -580,8 +644,9 @@ def test_dynamic_logs_include_counts_without_sensitive_values(monkeypatch):
     )
 
     combined = "\n".join(event_logs)
+    assert "OPEN_DETECTED | result=target_unavailable" in combined
     assert "ROUND_START | round=1" in combined
-    assert "QUERY | round=1 | visible=2 | eligible=1 | skipped=1" in combined
+    assert "QUERY | round=1 | visible=3 | eligible=1 | skipped=2" in combined
     assert "TRY | round=1 | attempt=1" in combined
     assert "private-example-token" not in combined
     assert "private-student-name" not in combined
@@ -911,7 +976,8 @@ def test_real_booking_stops_after_daily_limit_response(
     monkeypatch.setattr(
         auto,
         "now_local",
-        lambda: datetime(2026, 9, 9, 11, 29, 19).astimezone(),
+        # 必须落在新的核心抢票阶段内，否则全天捡漏关闭后任务会直接结束。
+        lambda: datetime(2026, 9, 9, 7, 32, 0).astimezone(),
     )
     monkeypatch.setattr(auto, "query_courts", lambda **_kwargs: {})
     monkeypatch.setattr(auto, "extract_available_slots", lambda _data: [target])
@@ -936,3 +1002,57 @@ def test_real_booking_stops_after_daily_limit_response(
     assert "检测到当天预约次数已用完，自动任务已停止" in output
     assert "程序不会继续扫描或重复提交" in output
     assert "预约尝试失败，继续扫描" not in output
+
+
+def test_late_start_after_finish_exits_without_scanning(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    """07:36 之后启动（旧版会进入全天捡漏）：现在应直接结束，不发任何请求。"""
+
+    config_path = tmp_path / "auto_booking.json"
+    save_auto_config(
+        {
+            **DEFAULT_AUTO_CONFIG,
+            "companion_student_number": "example-1234",
+            "real_booking_enabled": True,
+        },
+        config_path,
+    )
+    queries = []
+    attempts = []
+
+    monkeypatch.setenv("JLU_BOOKING_TOKEN", "example-token")
+    monkeypatch.setenv("JLU_BOOKING_COMPANION", "example-1234")
+    monkeypatch.setattr(auto, "existing_success_state_path", lambda _date: None)
+    monkeypatch.setattr(
+        auto,
+        "get_companion_user",
+        lambda **_kwargs: {"id": 123, "name": "示例用户"},
+    )
+    monkeypatch.setattr(
+        auto,
+        "now_local",
+        lambda: datetime(2026, 9, 9, 8, 0, 0).astimezone(),
+    )
+    monkeypatch.setattr(
+        auto,
+        "query_courts",
+        lambda **kwargs: queries.append(kwargs) or {},
+    )
+    monkeypatch.setattr(
+        auto,
+        "attempt_real_booking",
+        lambda **kwargs: attempts.append(kwargs) or True,
+    )
+    monkeypatch.setattr(auto, "log", lambda message: None)
+    monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
+
+    auto.main(["--config", str(config_path)])
+    output = capsys.readouterr().out
+
+    assert queries == []
+    assert attempts == []
+    assert "已到当天停止时间" in output
+    assert "全天捡漏：已关闭" in output
