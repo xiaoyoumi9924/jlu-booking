@@ -19,10 +19,20 @@ Token 文件和预约配置只属于当前用户，不会进入发布包或 Git 
 
 定时任务必须使用与保存配置时相同的 Linux 用户。不要把真实 Token 或学号直接写进 crontab、systemd unit、Shell 脚本、仓库或日志。
 
+建议让现有 systemd Timer 或 cron 在每天 07:27 启动。程序在 07:27–07:29:57 预热，07:29:57–07:33 高速预约，并在 07:33 结束。
+
 查看、修改或清除本机 Token：
 
 ```bash
 jlu-booking-token status
+jlu-booking-token verify
 jlu-booking-token set
 jlu-booking-token clear
+```
+
+`set` 只会在学校系统验证通过后替换旧 Token；无效 Token 或临时网络错误不会覆盖旧值。
+定时任务运行后可查看最近结果：
+
+```bash
+jlu-booking-status
 ```

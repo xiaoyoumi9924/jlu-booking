@@ -5,8 +5,10 @@ import os
 import re
 import sys
 import time
-from datetime import date, datetime, time as dt_time, timedelta
+from dataclasses import dataclass
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -23,8 +25,10 @@ if __package__:
         query_courts,
     )
     from .config import AUTO_CONFIG_FILE, DEFAULT_AUTO_CONFIG, load_auto_config, validate_auto_config
-    from .paths import LOG_DIR, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from .paths import LOG_DIR, RUN_STATUS_FILE, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from .run_status import RunStatusError, write_run_status
     from .token_store import TokenStoreError, resolve_token, save_token
+    from .token_validation import validate_token_online
 else:
     # 兼容 `python jlu_booking/auto.py` 这种按文件运行的方式。
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -40,8 +44,10 @@ else:
         query_courts,
     )
     from jlu_booking.config import AUTO_CONFIG_FILE, DEFAULT_AUTO_CONFIG, load_auto_config, validate_auto_config
-    from jlu_booking.paths import LOG_DIR, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from jlu_booking.paths import LOG_DIR, RUN_STATUS_FILE, RUNTIME_DIR, STATE_DIR, TOKEN_FILE
+    from jlu_booking.run_status import RunStatusError, write_run_status
     from jlu_booking.token_store import TokenStoreError, resolve_token, save_token
+    from jlu_booking.token_validation import validate_token_online
 
 
 # ============================================================
@@ -77,22 +83,67 @@ TIMING_LOG_FILE = LOG_DIR / f"{VENUE_NAME}_{SPORT_NAME}_request_timing.log"
 # 2. 时间与扫描频率
 # =========================
 
-START_TIME = dt_time(7, 28, 0)
-CORE_START_TIME = dt_time(7, 29, 55)
-CLOSING_START_TIME = dt_time(7, 33, 0)
+START_TIME = dt_time(7, 27, 0)
+CORE_START_TIME = dt_time(7, 29, 57)
+STOP_TIME = dt_time(7, 33, 0)
+BOOKING_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-# 收尾阶段结束时间。全天捡漏已关闭，到达该时间后当天任务直接结束，
-# 不再像旧版本那样继续扫描到 22:30。
-FINISH_TIME = dt_time(7, 36, 0)
-
-WARMUP_INTERVAL = 0.3
+WARMUP_INTERVAL = 1.0
 CORE_INTERVAL = 0.1
-CLOSING_INTERVAL = 0.3
 RATE_LIMIT_INTERVAL = 5.0
 
 
 class BookingOutcomeUnknown(RuntimeError):
     """最终提交已发出，但客户端无法确认服务器是否已经执行。"""
+
+
+class CoreWindowEnded(RuntimeError):
+    """07:33 后禁止发起新的学校接口请求。"""
+
+
+@dataclass
+class RunStatistics:
+    started_at: datetime
+    query_count: int = 0
+    canbook_count: int = 0
+    freebuy_count: int = 0
+    not_open_count: int = 0
+    target_unavailable_count: int = 0
+    server_rejected_count: int = 0
+    transport_error_count: int = 0
+    http_error_count: int = 0
+    stop_reason: str = "UNKNOWN"
+    booked_slot: dict | None = None
+
+    def record_request(self, endpoint):
+        if endpoint == "query":
+            self.query_count += 1
+        elif endpoint == "canBook":
+            self.canbook_count += 1
+        elif endpoint == "freeBuyPlace":
+            self.freebuy_count += 1
+
+    def record_error(self, exc):
+        category = classify_booking_error(exc)
+        if is_http_error(exc):
+            self.http_error_count += 1
+        elif is_transport_error(exc):
+            self.transport_error_count += 1
+
+        if category == "not_open":
+            self.not_open_count += 1
+        elif category == "target_unavailable":
+            self.target_unavailable_count += 1
+        elif category == "server_rejected":
+            self.server_rejected_count += 1
+
+
+class RuntimeTokenValidationError(RuntimeError):
+    """The effective Token was rejected or could not be checked safely."""
+
+    def __init__(self, status):
+        self.status = status
+        super().__init__(status)
 
 
 def configure_text_output(streams=None):
@@ -250,11 +301,12 @@ def resolve_target_date():
     TARGET_DAY = "今天" -> 预约今天
     TARGET_DAY = "明天" -> 预约明天
     """
+    today = now_local().date()
     if TARGET_DAY == "今天":
-        return date.today().isoformat(), "今天"
+        return today.isoformat(), "今天"
 
     if TARGET_DAY == "明天":
-        return (date.today() + timedelta(days=1)).isoformat(), "明天"
+        return (today + timedelta(days=1)).isoformat(), "明天"
 
     raise ValueError(
         'TARGET_DAY 只能填写 "今天" 或 "明天"。'
@@ -322,11 +374,27 @@ def format_settings_summary(settings, config_path, has_overrides=False):
 
 
 def now_local():
-    return datetime.now().astimezone()
+    return datetime.now(BOOKING_TIMEZONE)
+
+
+def _as_booking_datetime(value):
+    """把自动预约使用的时间统一解释为北京时间。"""
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=BOOKING_TIMEZONE)
+    return value.astimezone(BOOKING_TIMEZONE)
 
 
 def now_text():
     return now_local().strftime("%H:%M:%S.%f")[:-3]
+
+
+def ensure_request_allowed():
+    """阻止自动任务在当天核心窗口结束后发起新请求。"""
+
+    current_time = now_local().time().replace(tzinfo=None)
+    if current_time >= STOP_TIME:
+        raise CoreWindowEnded("核心预约窗口已结束。")
 
 
 def log(message):
@@ -334,6 +402,23 @@ def log(message):
     line = f"{now_local().isoformat()} | {message}\n"
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(line)
+
+
+def update_run_status(status, **fields):
+    """Persist status without ever interrupting the booking process."""
+
+    try:
+        write_run_status(
+            status,
+            venue=VENUE_NAME,
+            sport=SPORT_NAME,
+            **fields,
+        )
+    except (RunStatusError, OSError, ValueError) as exc:
+        try:
+            log(f"STATUS_WRITE_FAILED | {type(exc).__name__}")
+        except OSError:
+            pass
 
 
 def timing_log(request_id, endpoint, elapsed_ms, result):
@@ -352,13 +437,29 @@ def timing_log(request_id, endpoint, elapsed_ms, result):
         f.write(line)
 
 
-def timed_api_call(request_id, endpoint, function, /, **kwargs):
+def timed_api_call(
+    request_id,
+    endpoint,
+    function,
+    /,
+    *,
+    request_guard=None,
+    stats=None,
+    **kwargs,
+):
     """执行一次接口调用，并将耗时与精简结果写入独立日志。"""
+
+    if request_guard is not None:
+        request_guard()
+    if stats is not None:
+        stats.record_request(endpoint)
 
     started = time.monotonic()
     try:
         result = function(**kwargs)
     except Exception as exc:
+        if stats is not None:
+            stats.record_error(exc)
         elapsed_ms = (time.monotonic() - started) * 1000
         timing_log(
             request_id,
@@ -427,6 +528,32 @@ def candidate_key(slot):
     if not place_short_name or not start or not end:
         return None
     return place_short_name, start, end
+
+
+def reconcile_invalidated_candidates(invalidated, visible_keys):
+    """Advance stale candidates only after a successful query state change.
+
+    ``invalidated`` maps candidate keys to whether the key has disappeared
+    from at least one successful query.  A later reappearance releases the
+    key.  Query failures never call this helper and therefore cannot release
+    a stale candidate accidentally.
+    """
+
+    newly_absent = set()
+    reappeared = set()
+
+    for key, absence_seen in list(invalidated.items()):
+        if key in visible_keys:
+            if absence_seen:
+                invalidated.pop(key, None)
+                reappeared.add(key)
+            continue
+
+        if not absence_seen:
+            invalidated[key] = True
+            newly_absent.add(key)
+
+    return newly_absent, reappeared
 
 
 def _court_number(court_name):
@@ -520,6 +647,24 @@ def is_daily_booking_limit_error(exc):
     return explicit_limit or bool(mentions_daily_limit and remaining_is_zero)
 
 
+def is_account_blocked_error(exc):
+    """判断服务器是否明确禁止当前账号继续预约。"""
+
+    compact = _error_text(exc).lower()
+    return any(
+        marker in compact
+        for marker in (
+            "account_blocked",
+            "黑名单",
+            "账号异常",
+            "账号已被封禁",
+            "账号被封禁",
+            "账号冻结",
+            "请勿使用脚本预定",
+        )
+    )
+
+
 def is_booking_window_error(exc):
     """判断预约接口是否因尚未到开放时间而拒绝。"""
 
@@ -561,10 +706,7 @@ def is_target_unavailable_error(exc):
             "场次不存在",
         )
     )
-    asks_to_reselect_target = "请重新选择" in compact and any(
-        marker in compact for marker in ("场地", "场次", "时段", "预约")
-    )
-    return has_explicit_unavailable_marker or asks_to_reselect_target
+    return has_explicit_unavailable_marker
 
 
 def is_auth_error(exc):
@@ -589,19 +731,43 @@ def is_auth_error(exc):
 def is_rate_limit_error(exc):
     """判断服务器是否要求降低请求频率。"""
 
-    compact = _error_text(exc)
-    return any(
-        marker in compact
-        for marker in (
-            "429",
-            "请求过于频繁",
-            "操作过于频繁",
-            "访问过于频繁",
-            "服务器繁忙",
-            "系统繁忙",
-            "请稍后再试",
-        )
-    )
+    current = exc
+    while current is not None:
+        compact = _error_text(current).lower()
+        response = getattr(current, "response", None)
+        if getattr(response, "status_code", None) == 429:
+            return True
+        if isinstance(current, requests.HTTPError) and "429" in compact:
+            return True
+        if "429" in compact and (
+            "http" in compact or "too many requests" in compact
+        ):
+            return True
+        if any(
+            marker in compact
+            for marker in (
+                "请求过于频繁",
+                "操作过于频繁",
+                "访问过于频繁",
+                "频率限制",
+                "请求频率过高",
+                "too many requests",
+            )
+        ):
+            return True
+        current = current.__cause__
+    return False
+
+
+def is_http_error(exc):
+    """判断异常链中是否包含 HTTP 状态错误。"""
+
+    current = exc
+    while current is not None:
+        if isinstance(current, requests.HTTPError):
+            return True
+        current = current.__cause__
+    return False
 
 
 def is_transport_error(exc):
@@ -609,6 +775,8 @@ def is_transport_error(exc):
 
     current = exc
     while current is not None:
+        if isinstance(current, requests.HTTPError):
+            return False
         if isinstance(current, requests.RequestException):
             return True
         current = current.__cause__
@@ -625,6 +793,8 @@ def classify_booking_error(exc):
 
     if isinstance(exc, BookingOutcomeUnknown):
         return "submission_unknown"
+    if is_account_blocked_error(exc):
+        return "account_blocked"
     if is_daily_booking_limit_error(exc):
         return "daily_limit"
     if is_booking_window_error(exc):
@@ -635,11 +805,46 @@ def classify_booking_error(exc):
         return "auth"
     if is_rate_limit_error(exc):
         return "rate_limited"
+    if is_http_error(exc):
+        return "http"
     if is_transport_error(exc):
         return "transport"
     if isinstance(exc, ServerResponseError):
         return "server_rejected"
     return "error"
+
+
+def report_run_statistics(stats, *, ended_at=None):
+    """输出不含凭据和身份信息的单次运行统计。"""
+
+    finished_at = ended_at or now_local()
+    print()
+    print("=" * 50)
+    print("本次自动预约统计")
+    print("=" * 50)
+    print(f"开始时间：{stats.started_at.strftime('%H:%M:%S')}")
+    print(f"高速开始：{CORE_START_TIME.strftime('%H:%M:%S')}")
+    print(f"结束时间：{finished_at.strftime('%H:%M:%S')}")
+    print()
+    print(f"query:             {stats.query_count:5d}")
+    print(f"canBook:           {stats.canbook_count:5d}")
+    print(f"freeBuyPlace:      {stats.freebuy_count:5d}")
+    print()
+    print(f"not_open:          {stats.not_open_count:5d}")
+    print(f"target_unavailable:{stats.target_unavailable_count:5d}")
+    print(f"server_rejected:   {stats.server_rejected_count:5d}")
+    print(f"transport_error:   {stats.transport_error_count:5d}")
+    print(f"http_error:        {stats.http_error_count:5d}")
+    print()
+    print(f"STOP_REASON: {stats.stop_reason}")
+    if stats.booked_slot is not None:
+        print()
+        print(f"场地：{stats.booked_slot['court_name']}")
+        print(
+            f"时间：{stats.booked_slot['start']}-"
+            f"{stats.booked_slot['end']}"
+        )
+    print("=" * 50)
 
 
 def report_daily_booking_limit(query_date):
@@ -656,7 +861,8 @@ def report_daily_booking_limit(query_date):
 
 
 def get_phase(now_dt):
-    t = now_dt.time().replace(tzinfo=None)
+    local_dt = _as_booking_datetime(now_dt)
+    t = local_dt.time().replace(tzinfo=None)
 
     if t < START_TIME:
         return "waiting", None, False
@@ -664,21 +870,32 @@ def get_phase(now_dt):
     if START_TIME <= t < CORE_START_TIME:
         return "warmup", WARMUP_INTERVAL, False
 
-    if CORE_START_TIME <= t < CLOSING_START_TIME:
+    if CORE_START_TIME <= t < STOP_TIME:
         return "core", CORE_INTERVAL, True
-
-    if CLOSING_START_TIME <= t < FINISH_TIME:
-        return "closing", CLOSING_INTERVAL, True
 
     return "finished", None, False
 
 
+def phase_wait_seconds(now_dt, phase, interval):
+    """避免预热等待跨过高速阶段起点。"""
+
+    if phase != "warmup":
+        return interval
+    local_dt = _as_booking_datetime(now_dt)
+    core_start = datetime.combine(
+        local_dt.date(),
+        CORE_START_TIME,
+        tzinfo=BOOKING_TIMEZONE,
+    )
+    remaining = max(0.0, (core_start - local_dt).total_seconds())
+    return min(interval, remaining)
+
+
 def phase_display_name(phase):
     return {
-        "waiting": "等待 07:28",
+        "waiting": "等待 07:27",
         "warmup": "预热阶段",
         "core": "核心抢票阶段",
-        "closing": "收尾阶段",
         "finished": "当天任务结束",
     }[phase]
 
@@ -703,11 +920,11 @@ def wait_until_start():
         )
 
         print(
-            f"[{now_text()}] 距离 07:28 还有约 {remaining:.0f} 秒，等待启动...",
+            f"[{now_text()}] 距离 07:27 还有约 {remaining:.0f} 秒，等待启动...",
             flush=True,
         )
 
-        time.sleep(min(30, max(1, remaining)))
+        time.sleep(min(30, max(0.01, remaining)))
 
 
 def attempt_real_booking(
@@ -718,6 +935,8 @@ def attempt_real_booking(
     token,
     session,
     request_id,
+    request_guard=None,
+    stats=None,
 ):
     place_short_name = slot.get("place_short_name")
 
@@ -728,6 +947,8 @@ def attempt_real_booking(
         request_id,
         "canBook",
         can_book,
+        request_guard=request_guard,
+        stats=stats,
         query_date=query_date,
         start_time=slot["start"],
         end_time=slot["end"],
@@ -742,6 +963,8 @@ def attempt_real_booking(
             request_id,
             "freeBuyPlace",
             book_place,
+            request_guard=request_guard,
+            stats=stats,
             query_date=query_date,
             start_time=slot["start"],
             end_time=slot["end"],
@@ -752,6 +975,8 @@ def attempt_real_booking(
             token=token,
             session=session,
         )
+    except CoreWindowEnded:
+        raise
     except ServerResponseError:
         # 服务器明确返回失败，上层可以按错误类型决定是否重试。
         raise
@@ -817,15 +1042,6 @@ def get_runtime_token():
         ).strip()
         if token:
             token_source = "prompt"
-            try:
-                save_token(token)
-                token_source = "prompt_saved"
-            except (TokenStoreError, ValueError) as exc:
-                print(
-                    "警告：Token 本次仍可使用，但未能保存到本机。"
-                    f"\n{exc}",
-                    file=sys.stderr,
-                )
 
     if not token:
         raise SystemExit(
@@ -835,6 +1051,48 @@ def get_runtime_token():
         )
 
     return token, token_source
+
+
+def validate_runtime_token(
+    token,
+    token_source,
+    *,
+    query_date,
+    session,
+    request_guard=None,
+    stats=None,
+):
+    """Validate the effective Token and save a prompted value only if valid."""
+
+    result = validate_token_online(
+        token,
+        query_date=query_date,
+        venue_name=VENUE_NAME,
+        sport_name=SPORT_NAME,
+        session=session,
+        request_guard=request_guard,
+        request_hook=stats.record_request if stats is not None else None,
+        error_hook=stats.record_error if stats is not None else None,
+    )
+    log(f"TOKEN_CHECK | {result.status}")
+
+    if result.status != "valid":
+        raise RuntimeTokenValidationError(result.status)
+
+    if token_source != "prompt":
+        return token_source
+
+    try:
+        save_token(token)
+    except (TokenStoreError, ValueError) as exc:
+        print(
+            "警告：Token 已验证且本次可使用，但未能保存到本机。"
+            f"\n{exc}",
+            file=sys.stderr,
+        )
+        return "prompt"
+
+    return "prompt_saved"
 
 
 def ensure_auto_run_ready(settings, *, explicit_dry_run=False):
@@ -881,17 +1139,16 @@ def run_booking_loop(
     companion_name,
     token,
     session,
+    stats=None,
 ):
-    """运行预热、开放探测和开放后的动态候选轮次。"""
+    """运行预热和基于最新查询结果的核心预约循环。"""
+
+    if stats is None:
+        stats = RunStatistics(started_at=now_local())
 
     request_id = 0
     last_phase = None
-    open_detected = False
-    locked_target = None
-    attempted_this_round = set()
-    round_number = 0
-    attempt_number = 0
-    round_active = False
+    invalidated_candidates = {}
 
     while True:
         now_dt = now_local()
@@ -902,12 +1159,18 @@ def run_booking_loop(
             continue
 
         if phase == "finished":
+            stats.stop_reason = "CORE_WINDOW_ENDED"
             print(
                 f"[{now_text()}] 已到当天停止时间，"
                 "仍未预约成功，任务结束。",
                 flush=True,
             )
             log("当天停止时间到达 | 未预约成功")
+            update_run_status(
+                "no_result",
+                target_date=query_date,
+                phase="finished",
+            )
             return
 
         if phase != last_phase:
@@ -917,172 +1180,189 @@ def run_booking_loop(
                 f"{phase_display_name(phase)}",
                 flush=True,
             )
-            print(
-                f"[{now_text()}] >>> 服务器响应后的等待间隔："
-                f"{interval:g} 秒",
-                flush=True,
-            )
-            log(
-                f"阶段切换 | {phase_display_name(phase)} | "
-                f"响应后等待 {interval:g} 秒"
+            if phase == "core":
+                print(
+                    f"[{now_text()}] >>> 普通路径零人为等待",
+                    flush=True,
+                )
+                log(
+                    f"阶段切换 | {phase_display_name(phase)} | "
+                    "普通路径零人为等待"
+                )
+            else:
+                print(
+                    f"[{now_text()}] >>> 服务器响应后的等待间隔："
+                    f"{interval:g} 秒",
+                    flush=True,
+                )
+                log(
+                    f"阶段切换 | {phase_display_name(phase)} | "
+                    f"服务器响应后的等待间隔 {interval:g} 秒"
+                )
+            update_run_status(
+                "running",
+                target_date=query_date,
+                phase=phase,
             )
 
             if phase == "core":
-                locked_target = None
-                attempted_this_round.clear()
-                round_active = False
-                attempt_number = 0
                 log("CORE_REFRESH | 丢弃预热候选并重新查询")
-
             last_phase = phase
 
         request_id += 1
-        target = locked_target
-
-        if target is not None:
+        try:
+            data = timed_api_call(
+                request_id,
+                "query",
+                query_courts,
+                request_guard=ensure_request_allowed,
+                stats=stats,
+                query_date=query_date,
+                sport_short_name=SPORT_SHORT_NAME,
+                shop_num=SHOP_NUM,
+                token=token,
+                session=session,
+            )
+        except CoreWindowEnded:
+            stats.stop_reason = "CORE_WINDOW_ENDED"
             print(
-                f"[{now_text()}] #{request_id:05d} | LOCKED | "
-                f"直接重试：{_target_text(target)}",
+                f"[{now_text()}] 已到 07:33:00，禁止发起新请求，任务结束。",
+                flush=True,
+            )
+            log("核心预约窗口结束 | 未预约成功")
+            update_run_status(
+                "no_result",
+                target_date=query_date,
+                phase="finished",
+            )
+            return
+        except Exception as exc:
+            category = classify_booking_error(exc)
+            print(
+                f"[{now_text()}] #{request_id:05d} | 扫描异常 "
+                f"[{category}] | {exc}",
+                flush=True,
+            )
+            log(f"扫描异常 | {category} | {type(exc).__name__}: {exc}")
+            if is_account_blocked_error(exc):
+                stats.stop_reason = "ACCOUNT_BLOCKED"
+                print("账号已被明确禁止预约，自动任务已停止。")
+                update_run_status(
+                    "account_blocked",
+                    target_date=query_date,
+                    phase=phase,
+                )
+                return
+            if is_daily_booking_limit_error(exc):
+                stats.stop_reason = "DAILY_LIMIT"
+                report_daily_booking_limit(query_date)
+                update_run_status(
+                    "daily_limit",
+                    target_date=query_date,
+                    phase=phase,
+                )
+                return
+            if is_auth_error(exc):
+                stats.stop_reason = "AUTH_INVALID"
+                print("Token 或登录状态已失效，自动任务已停止。")
+                update_run_status(
+                    "token_invalid",
+                    target_date=query_date,
+                    phase=phase,
+                )
+                return
+            if is_rate_limit_error(exc):
+                time.sleep(max(RATE_LIMIT_INTERVAL, interval))
+            elif phase != "core" or not isinstance(exc, ServerResponseError):
+                time.sleep(interval)
+            continue
+
+        available_slots = extract_available_slots(data)
+        candidates = sort_booking_candidates(available_slots)
+        visible_keys = {
+            key
+            for key in (candidate_key(slot) for slot in candidates)
+            if key is not None
+        }
+        newly_absent, reappeared = reconcile_invalidated_candidates(
+            invalidated_candidates,
+            visible_keys,
+        )
+        for key in sorted(newly_absent):
+            log(f"INVALIDATED_ABSENT | key={key}")
+        for key in sorted(reappeared):
+            log(f"REAPPEARED | key={key}")
+
+        eligible = [
+            slot
+            for slot in candidates
+            if candidate_key(slot) not in invalidated_candidates
+        ]
+        invalidated_count = sum(
+            candidate_key(slot) in invalidated_candidates
+            for slot in candidates
+        )
+        target = eligible[0] if eligible else None
+
+        if target is None:
+            print(
+                f"[{now_text()}] #{request_id:05d} | "
+                f"{phase_display_name(phase)} | "
+                f"0 个可提交{SPORT_NAME}候选",
                 flush=True,
             )
         else:
-            try:
-                data = timed_api_call(
-                    request_id,
-                    "query",
-                    query_courts,
-                    query_date=query_date,
-                    sport_short_name=SPORT_SHORT_NAME,
-                    shop_num=SHOP_NUM,
-                    token=token,
-                    session=session,
-                )
-            except Exception as exc:
-                category = classify_booking_error(exc)
+            print(
+                f"[{now_text()}] #{request_id:05d} | "
+                f"{phase_display_name(phase)} | "
+                f"发现 {len(available_slots)} 个 | "
+                f"目标：{_target_text(target)}",
+                flush=True,
+            )
+
+        if phase == "warmup":
+            target_text = _target_text(target) if target is not None else "none"
+            log(
+                f"WARMUP | visible={len(available_slots)} | "
+                f"valid={len(candidates)} | target={target_text}"
+            )
+            if target is not None:
                 print(
-                    f"[{now_text()}] #{request_id:05d} | 扫描异常 "
-                    f"[{category}] | {exc}",
+                    f"[{now_text()}] 预热阶段只查询不提交；"
+                    "候选不会带入核心阶段。",
                     flush=True,
                 )
-                log(f"扫描异常 | {category} | {type(exc).__name__}: {exc}")
-                if is_daily_booking_limit_error(exc):
-                    report_daily_booking_limit(query_date)
-                    return
-                if is_auth_error(exc):
-                    print("Token 或登录状态已失效，自动任务已停止。")
-                    return
-                delay = (
-                    max(RATE_LIMIT_INTERVAL, interval)
-                    if is_rate_limit_error(exc)
-                    else interval
-                )
-                time.sleep(delay)
-                continue
-
-            available_slots = extract_available_slots(data)
-            candidates = sort_booking_candidates(available_slots)
-            target = candidates[0] if candidates else None
-
-            if target is None:
-                print(
-                    f"[{now_text()}] #{request_id:05d} | "
-                    f"{phase_display_name(phase)} | "
-                    f"0 个可提交{SPORT_NAME}候选",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"[{now_text()}] #{request_id:05d} | "
-                    f"{phase_display_name(phase)} | "
-                    f"发现 {len(available_slots)} 个 | "
-                    f"目标：{_target_text(target)}",
-                    flush=True,
-                )
-
-            if phase == "warmup":
-                target_text = _target_text(target) if target is not None else "none"
-                log(
-                    f"WARMUP | visible={len(available_slots)} | "
-                    f"valid={len(candidates)} | target={target_text}"
-                )
-                if target is not None:
-                    print(
-                        f"[{now_text()}] 预热阶段只查询不提交；"
-                        "候选不会带入核心阶段。",
-                        flush=True,
-                    )
-                time.sleep(interval)
-                continue
-
-            if not REAL_BOOKING_ENABLED:
-                if target is not None:
-                    print(
-                        f"[{now_text()}] 安全测试模式："
-                        "发现目标但不会提交预约。",
-                        flush=True,
-                    )
-                time.sleep(interval)
-                continue
-
-            if not allow_booking:
-                time.sleep(interval)
-                continue
-
-            if not open_detected:
-                if target is None:
-                    log(
-                        f"PREOPEN | visible={len(available_slots)} | "
-                        f"valid={len(candidates)} | target=none"
-                    )
-                    time.sleep(interval)
-                    continue
-                locked_target = target
-                log(f"PREOPEN | target={_target_text(target)}")
-            else:
-                if not round_active:
-                    round_number += 1
-                    attempt_number = 0
-                    round_active = True
-                    log(f"ROUND_START | round={round_number}")
-
-                eligible = [
-                    slot
-                    for slot in candidates
-                    if candidate_key(slot) not in attempted_this_round
-                ]
-                skipped = len(available_slots) - len(eligible)
-                log(
-                    f"QUERY | round={round_number} | "
-                    f"visible={len(available_slots)} | "
-                    f"eligible={len(eligible)} | skipped={skipped}"
-                )
-
-                if not eligible:
-                    print(
-                        f"[{now_text()}] 第 {round_number} 轮候选已尝试完；"
-                        f"等待 {interval:g} 秒后开始新一轮。",
-                        flush=True,
-                    )
-                    log(
-                        f"ROUND_END | round={round_number} | "
-                        f"attempted={len(attempted_this_round)}"
-                    )
-                    time.sleep(interval)
-                    attempted_this_round.clear()
-                    locked_target = None
-                    round_active = False
-                    continue
-
-                target = eligible[0]
-                attempt_number += 1
-                log(
-                    f"TRY | round={round_number} | attempt={attempt_number} | "
-                    f"target={_target_text(target)}"
-                )
-
-        if not REAL_BOOKING_ENABLED or target is None or not allow_booking:
-            time.sleep(interval)
+            wait_seconds = phase_wait_seconds(now_local(), phase, interval)
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
             continue
+
+        if not REAL_BOOKING_ENABLED:
+            if target is not None:
+                print(
+                    f"[{now_text()}] 安全测试模式："
+                    "发现目标但不会提交预约。",
+                    flush=True,
+                )
+            continue
+
+        if not allow_booking:
+            continue
+
+        log(
+            f"QUERY | visible={len(available_slots)} | "
+            f"invalidated={invalidated_count} | "
+            f"eligible={len(eligible)}"
+        )
+        if target is None:
+            continue
+
+        print(
+            f"[{now_text()}] #{request_id:05d} | "
+            f"TRY | {_target_text(target)}",
+            flush=True,
+        )
+        log(f"TRY | target={_target_text(target)}")
 
         try:
             if attempt_real_booking(
@@ -1093,113 +1373,157 @@ def run_booking_loop(
                 token=token,
                 session=session,
                 request_id=request_id,
+                request_guard=ensure_request_allowed,
+                stats=stats,
             ):
-                if not open_detected:
-                    log(
-                        f"OPEN_DETECTED | result=success | "
-                        f"target={_target_text(target)}"
-                    )
+                stats.stop_reason = "BOOKING_SUCCESS"
+                stats.booked_slot = dict(target)
+                log(
+                    f"OPEN_DETECTED | result=success | "
+                    f"target={_target_text(target)}"
+                )
+                update_run_status(
+                    "success",
+                    target_date=query_date,
+                    phase=phase,
+                )
                 return
 
+        except CoreWindowEnded:
+            stats.stop_reason = "CORE_WINDOW_ENDED"
+            print(
+                f"[{now_text()}] 已到 07:33:00，禁止发起新请求，任务结束。",
+                flush=True,
+            )
+            log("核心预约窗口结束 | 未预约成功")
+            update_run_status(
+                "no_result",
+                target_date=query_date,
+                phase="finished",
+            )
+            return
+
         except BookingOutcomeUnknown:
+            stats.stop_reason = "BOOKING_OUTCOME_UNKNOWN"
             report_unknown_booking_outcome(query_date, target)
             log(f"任务停止 | 最终提交结果不确定 | {_target_text(target)}")
+            update_run_status(
+                "submission_unknown",
+                target_date=query_date,
+                phase=phase,
+            )
             return
 
         except Exception as exc:
             category = classify_booking_error(exc)
 
+            if is_account_blocked_error(exc):
+                stats.stop_reason = "ACCOUNT_BLOCKED"
+                print(
+                    f"[{now_text()}] 账号已被明确禁止预约，"
+                    "自动任务已停止。",
+                    flush=True,
+                )
+                log(f"任务停止 | 账号被禁止预约 | {_target_text(target)}")
+                update_run_status(
+                    "account_blocked",
+                    target_date=query_date,
+                    phase=phase,
+                )
+                return
+
             if is_daily_booking_limit_error(exc):
+                stats.stop_reason = "DAILY_LIMIT"
                 report_daily_booking_limit(query_date)
                 log(f"任务停止 | 当天预约次数已用完 | {_target_text(target)}")
+                update_run_status(
+                    "daily_limit",
+                    target_date=query_date,
+                    phase=phase,
+                )
                 return
 
             if is_auth_error(exc):
+                stats.stop_reason = "AUTH_INVALID"
                 print(
                     f"[{now_text()}] Token 或登录状态已失效，"
                     "自动任务已停止。",
                     flush=True,
                 )
                 log(f"任务停止 | 登录失效 | {_target_text(target)}")
+                update_run_status(
+                    "token_invalid",
+                    target_date=query_date,
+                    phase=phase,
+                )
                 return
 
             if is_rate_limit_error(exc):
                 backoff = max(RATE_LIMIT_INTERVAL, interval)
-                locked_target = target
                 print(
                     f"[{now_text()}] 服务器要求降低频率，"
-                    f"等待 {backoff:g} 秒后重试当前目标。",
+                    f"等待 {backoff:g} 秒后重新查询。",
                     flush=True,
                 )
                 log(
-                    f"RETRY_LOCKED | category=rate_limited | "
+                    f"RETRY_REFRESH | category=rate_limited | "
                     f"target={_target_text(target)}"
                 )
                 time.sleep(backoff)
                 continue
 
             if is_booking_window_error(exc):
-                locked_target = target
                 print(
                     f"[{now_text()}] 尚未到服务器实际开放时间；"
-                    f"保持 LOCKED，{interval:g} 秒后直接重试。",
-                    flush=True,
-                )
-                if open_detected:
-                    log(
-                        f"OPEN_STATE | not_open | "
-                        f"target={_target_text(target)}"
-                    )
-                else:
-                    log(
-                        f"PREOPEN | not_open | "
-                        f"target={_target_text(target)}"
-                    )
-                time.sleep(interval)
-                continue
-
-            if is_transport_error(exc):
-                locked_target = target
-                print(
-                    f"[{now_text()}] 预检网络异常；保持 LOCKED，"
-                    f"{interval:g} 秒后直接重试。",
+                    "立即重新查询最新候选。",
                     flush=True,
                 )
                 log(
-                    f"RETRY_LOCKED | category=transport | "
+                    f"CORE_RETRY | category=not_open | "
+                    f"target={_target_text(target)}"
+                )
+                continue
+
+            if is_transport_error(exc):
+                print(
+                    f"[{now_text()}] 预检网络异常；"
+                    f"等待 {interval:g} 秒后重新查询。",
+                    flush=True,
+                )
+                log(
+                    f"RETRY_REFRESH | category=transport | "
                     f"target={_target_text(target)}"
                 )
                 time.sleep(interval)
                 continue
 
             if isinstance(exc, ServerResponseError):
-                if not open_detected:
-                    open_detected = True
-                    round_number += 1
-                    attempt_number = 0
-                    round_active = True
+                key = candidate_key(target)
+                if category == "target_unavailable" and key is not None:
+                    invalidated_candidates[key] = False
+                    log(f"INVALIDATED | target={_target_text(target)}")
+                    print(
+                        f"[{now_text()}] 当前候选明确失效；"
+                        "立即重新查询最新状态。",
+                        flush=True,
+                    )
                     log(
-                        f"OPEN_DETECTED | result={category} | "
+                        "TARGET_FAILED | category=target_unavailable | "
                         f"target={_target_text(target)}"
                     )
-                    log(f"ROUND_START | round={round_number}")
-
-                key = candidate_key(target)
-                if key is not None:
-                    attempted_this_round.add(key)
-                locked_target = None
-                print(
-                    f"[{now_text()}] 当前候选明确失败 [{category}]；"
-                    "立即重新查询最新状态。",
-                    flush=True,
-                )
-                log(
-                    f"TARGET_FAILED | round={round_number} | "
-                    f"category={category} | target={_target_text(target)}"
-                )
+                else:
+                    print(
+                        f"[{now_text()}] 普通服务器拒绝，不改变优先级；"
+                        "立即重新查询最新候选。",
+                        flush=True,
+                    )
+                    log(
+                        "CORE_RETRY | category=server_rejected | "
+                        "priority=unchanged | "
+                        f"target={_target_text(target)}"
+                    )
                 continue
 
-            locked_target = None
             print(
                 f"[{now_text()}] 预约尝试异常 [{category}]，"
                 f"等待 {interval:g} 秒后重新查询 | {exc}",
@@ -1254,6 +1578,7 @@ def main(argv=None):
                     "event_log": str(LOG_FILE),
                     "request_timing_log": str(TIMING_LOG_FILE),
                     "state_dir": str(STATE_DIR),
+                    "run_status_file": str(RUN_STATUS_FILE),
                     "token_file": str(TOKEN_FILE),
                 },
                 ensure_ascii=False,
@@ -1263,19 +1588,100 @@ def main(argv=None):
         return
 
     query_date, target_day_text = resolve_target_date()
+    stats = RunStatistics(started_at=now_local())
+    update_run_status(
+        "starting",
+        target_date=query_date,
+        phase="startup",
+    )
 
     existing_state = existing_success_state_path(query_date)
     if existing_state is not None:
+        stats.stop_reason = "EXISTING_SUCCESS_STATE"
+        update_run_status(
+            "success",
+            target_date=query_date,
+            phase="existing_state",
+        )
         print(
             f"检测到本地已有{target_day_text}{VENUE_NAME}{SPORT_NAME}预约成功记录，"
             "为避免重复预约，本次直接退出。",
             flush=True,
         )
         print(f"状态文件：{existing_state}")
+        report_run_statistics(stats)
         return
 
-    ensure_auto_run_ready(settings, explicit_dry_run=args.dry_run)
-    token, token_source = get_runtime_token()
+    try:
+        ensure_auto_run_ready(settings, explicit_dry_run=args.dry_run)
+        token, token_source = get_runtime_token()
+    except SystemExit:
+        stats.stop_reason = "CONFIGURATION_ERROR"
+        update_run_status(
+            "error",
+            target_date=query_date,
+            phase="configuration",
+        )
+        report_run_statistics(stats)
+        raise
+    session = requests.Session()
+    try:
+        token_source = validate_runtime_token(
+            token,
+            token_source,
+            query_date=query_date,
+            session=session,
+            request_guard=ensure_request_allowed,
+            stats=stats,
+        )
+    except CoreWindowEnded:
+        stats.stop_reason = "CORE_WINDOW_ENDED"
+        update_run_status(
+            "no_result",
+            target_date=query_date,
+            phase="finished",
+        )
+        print("已到 07:33:00，禁止发起新请求，今日自动任务停止。")
+        session.close()
+        report_run_statistics(stats)
+        return
+    except RuntimeTokenValidationError as exc:
+        if exc.status == "account_blocked":
+            stats.stop_reason = "ACCOUNT_BLOCKED"
+            update_run_status(
+                "account_blocked",
+                target_date=query_date,
+                phase="token_check",
+            )
+            print("TOKEN_CHECK | account_blocked")
+            print("账号已被明确禁止预约，今日自动任务停止。")
+        elif exc.status == "invalid":
+            stats.stop_reason = "AUTH_INVALID"
+            update_run_status(
+                "token_invalid",
+                target_date=query_date,
+                phase="token_check",
+            )
+            print("TOKEN_CHECK | invalid")
+            print("Token 或登录状态已失效，今日自动任务停止。")
+        else:
+            stats.stop_reason = "TOKEN_CHECK_UNAVAILABLE"
+            update_run_status(
+                "network_unavailable",
+                target_date=query_date,
+                phase="token_check",
+            )
+            print("TOKEN_CHECK | unavailable")
+            print("暂时无法向学校系统验证 Token，今日自动任务停止。")
+        session.close()
+        report_run_statistics(stats)
+        return
+
+    update_run_status(
+        "running",
+        target_date=query_date,
+        phase="startup",
+    )
 
     print("=" * 72)
     print("吉林大学场馆通用自动预约")
@@ -1312,14 +1718,7 @@ def main(argv=None):
         f"场地规则：每个重点时间段内优先 {PREFERRED_COURT_NAME}，"
         "没有则选择同时间段其他场地"
     )
-    print(
-        "阶段安排："
-        f"{START_TIME:%H:%M:%S} 预热 → "
-        f"{CORE_START_TIME:%H:%M:%S} 核心 → "
-        f"{CLOSING_START_TIME:%H:%M:%S} 收尾 → "
-        f"{FINISH_TIME:%H:%M:%S} 结束"
-    )
-    print("全天捡漏：已关闭；收尾阶段结束后当天任务不再继续运行")
+    print("自动预约窗口：07:27 预热，07:29:57–07:33 高速预约，07:33 结束")
     print(f"事件日志：{LOG_FILE}")
     print(f"请求耗时日志：{TIMING_LOG_FILE}")
     print(
@@ -1336,7 +1735,6 @@ def main(argv=None):
     print("=" * 72)
     print()
 
-    session = requests.Session()
     try:
         companion_id = None
         companion_name = "未配置"
@@ -1347,6 +1745,8 @@ def main(argv=None):
                 "startup",
                 "companion",
                 get_companion_user,
+                request_guard=ensure_request_allowed,
+                stats=stats,
                 student_number=COMPANION_STUDENT_NUMBER,
                 token=token,
                 session=session,
@@ -1383,14 +1783,49 @@ def main(argv=None):
             companion_name=companion_name,
             token=token,
             session=session,
+            stats=stats,
         )
 
     except KeyboardInterrupt:
+        stats.stop_reason = "USER_INTERRUPTED"
+        update_run_status(
+            "stopped",
+            target_date=query_date,
+            phase="interrupted",
+        )
         print()
         print("收到 Control+C，程序已停止。")
         log("用户手动停止")
+    except Exception as exc:
+        if isinstance(exc, CoreWindowEnded):
+            status = "no_result"
+            stats.stop_reason = "CORE_WINDOW_ENDED"
+        elif is_account_blocked_error(exc):
+            status = "account_blocked"
+            stats.stop_reason = "ACCOUNT_BLOCKED"
+        elif is_daily_booking_limit_error(exc):
+            status = "daily_limit"
+            stats.stop_reason = "DAILY_LIMIT"
+        elif is_auth_error(exc):
+            status = "token_invalid"
+            stats.stop_reason = "AUTH_INVALID"
+        elif is_transport_error(exc):
+            status = "network_unavailable"
+            stats.stop_reason = "NETWORK_UNAVAILABLE"
+        else:
+            status = "error"
+            stats.stop_reason = "UNHANDLED_ERROR"
+        update_run_status(
+            status,
+            target_date=query_date,
+            phase="startup",
+            detail=type(exc).__name__,
+        )
+        if status not in {"no_result", "account_blocked", "daily_limit", "token_invalid"}:
+            raise
     finally:
         session.close()
+        report_run_statistics(stats)
 
 
 if __name__ == "__main__":

@@ -8,13 +8,13 @@ JLU Booking 会把已验证的 Token 与同行人学工号保存在当前 Window
 2. 进入“自动预约”，填写同行人学工号。
 3. 选择“仅扫描”或“真实预约”，点击“保存配置”。
 4. 以后重新打开程序会自动读取 Token 和同行人学工号。
-5. 程序如果在 07:28 前启动，会自动等待到 07:28。
+5. 程序如果在 07:27 前启动，会自动等待到 07:27。
 
 不要把 Token 或学号写进任务参数。Token 文件和预约配置不会进入发布包或 Git 仓库。
 
 ## 让任务计划程序直接运行
 
-可以创建每天 07:28 的“启动程序”任务，目标填写 `JLU Booking.exe` 的完整路径，并添加参数 `--auto-worker`。运行用户必须与保存配置时相同。
+可以创建每天 07:27 的“启动程序”任务，目标填写 `JLU Booking.exe` 的完整路径，并添加参数 `--auto-worker`。运行用户必须与保存配置时相同。
 
 ## 高级命令行使用
 
@@ -24,6 +24,14 @@ JLU Booking 会把已验证的 Token 与同行人学工号保存在当前 Window
 
 ```powershell
 jlu-booking-token status
+jlu-booking-token verify
 jlu-booking-token set
 jlu-booking-token clear
+```
+
+`set` 只会在学校系统验证通过后替换旧 Token；无效 Token 或临时网络错误不会覆盖旧值。
+计划任务运行后可查看最近结果：
+
+```powershell
+jlu-booking-status
 ```

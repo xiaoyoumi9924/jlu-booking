@@ -202,7 +202,7 @@ jlu-booking-auto --dry-run
 请输入 JLU_BOOKING_TOKEN（输入不会回显）：
 ```
 
-输入过程中屏幕不会出现字符或星号，这是密码输入的正常行为。如果直接按 Enter 提交空内容，程序会提示没有找到 Token 并退出。非空 Token 会保存到当前 Linux 用户的配置目录，下次自动复用。
+输入过程中屏幕不会出现字符或星号，这是密码输入的正常行为。如果直接按 Enter 提交空内容，程序会提示没有找到 Token 并退出。非空 Token 会先用只读查询验证，通过后才保存到当前 Linux 用户的配置目录，下次自动复用。
 
 按 `Ctrl+C` 可以停止扫描。确认配置和仅扫描模式正常后，才考虑运行：
 
@@ -220,11 +220,19 @@ jlu-booking-auto --real-booking
 jlu-booking-token status
 ```
 
+联网检查当前生效 Token（不显示内容）：
+
+```bash
+jlu-booking-token verify
+```
+
 隐藏输入并保存或更新：
 
 ```bash
 jlu-booking-token set
 ```
+
+`set` 只会在验证通过后替换旧 Token。学校明确拒绝或网络暂时不可用时，原有 Token 保持不变。
 
 清除保存值：
 
@@ -267,6 +275,12 @@ Token：~/.config/jlu-booking/token
 如果项目中已经存在旧版 `config/auto_booking.json` 或 `runtime/`，程序会继续兼容旧路径，因此应以 `--show-paths` 的实际输出为准。
 
 `--show-paths` 输出中的 `event_log` 记录阶段切换、目标锁定和预约结果；`request_timing_log` 是单独的接口耗时日志。耗时日志不保存 Token、学号或完整请求参数。
+
+查看最近一次无人值守任务状态：
+
+```bash
+jlu-booking-status
+```
 
 ## 10. Linux 常见错误
 
@@ -358,7 +372,9 @@ python -m pip install -e .
 
 ### 自动任务提示“没有找到可用 Token”
 
-先运行 `jlu-booking-token status` 检查当前用户是否已有保存值；没有时运行 `jlu-booking-token set`。同行人应先在 GUI 中验证并保存，或写入该用户的预约配置。
+先运行 `jlu-booking-token status` 检查当前用户是否已有保存值，再运行
+`jlu-booking-token verify` 确认学校系统仍接受；没有时运行 `jlu-booking-token set`。
+同行人应先在 GUI 中验证并保存，或写入该用户的预约配置。
 
 ### 修改 Token 后仍然使用旧值
 
@@ -378,6 +394,7 @@ python -m pip install -e .
 jlu-booking-auto --help
 jlu-booking-auto --show-config
 jlu-booking-token status
+jlu-booking-token verify
 jlu-booking
 ```
 

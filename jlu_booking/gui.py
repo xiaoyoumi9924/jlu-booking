@@ -22,6 +22,7 @@ if __package__:
         resolve_token,
         save_token,
     )
+    from .token_validation import validate_token_online
     from .ui_support import (
         EMBEDDED_LOGO_GIF,
         choose_ui_fonts,
@@ -42,6 +43,7 @@ else:
         resolve_token,
         save_token,
     )
+    from jlu_booking.token_validation import validate_token_online
     from jlu_booking.ui_support import (
         EMBEDDED_LOGO_GIF,
         choose_ui_fonts,
@@ -335,12 +337,11 @@ class BookingApp:
                 sport_name = selected
                 break
 
-        shop_num, sport_short_name = resolve_venue_sport(venue_name, sport_name)
-        query_courts(
-            query_date=date.today().isoformat(),
-            sport_short_name=sport_short_name,
-            shop_num=shop_num,
+        return validate_token_online(
             token=token,
+            query_date=date.today().isoformat(),
+            venue_name=venue_name,
+            sport_name=sport_name,
         )
 
     def get_token(self, parent=None, prompt=True):
@@ -384,23 +385,31 @@ class BookingApp:
                     continue
                 entered_now = True
             try:
-                self.validate_token(candidate)
-            except Exception as exc:
-                previous_source = getattr(self, "token_source", "none")
-                self.token = ""
-                self.token_source = "none"
+                validation = self.validate_token(candidate)
+            except Exception:
+                validation = None
+
+            if validation is None or validation.status == "unavailable":
                 self.token_validated = False
-                if previous_source == "saved":
-                    try:
-                        clear_saved_token()
-                    except TokenStoreError:
-                        pass
+                messagebox.showwarning(
+                    "Token 暂时无法验证",
+                    (
+                        "学校服务器或网络暂时不可用，"
+                        "无法判断 Token 是否有效。\n\n"
+                        "本机已保存的 Token 没有被修改，请稍后重试。"
+                    ),
+                    parent=dialog_parent,
+                )
+                return None
+
+            if validation.status == "invalid":
+                self.token_validated = False
                 messagebox.showerror(
                     "Token 验证未通过",
                     (
-                        "学校系统没有接受这个 Token，请重新获取并输入有效 Token。\n"
-                        "如果 Token 刚刚获取，也请检查网络后重试。\n\n"
-                        f"服务器提示：{exc}"
+                        "学校系统明确表示这个 Token 已失效。\n\n"
+                        "请重新登录学校场馆系统并输入新 Token；"
+                        "新 Token 验证成功前不会覆盖原文件。"
                     ),
                     parent=dialog_parent,
                 )
