@@ -7,6 +7,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .paths import RUN_STATUS_FILE
 
@@ -18,12 +19,14 @@ ALLOWED_STATUSES = {
     "no_result",
     "token_invalid",
     "network_unavailable",
+    "account_blocked",
     "daily_limit",
     "submission_unknown",
     "stopped",
     "error",
 }
 ALLOWED_FIELDS = {"target_date", "venue", "sport", "phase", "detail"}
+RUN_STATUS_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class RunStatusError(RuntimeError):
@@ -39,7 +42,7 @@ def write_run_status(status, *, path=RUN_STATUS_FILE, **fields):
 
     payload = {
         "status": status,
-        "updated_at": datetime.now().astimezone().isoformat(),
+        "updated_at": datetime.now(RUN_STATUS_TIMEZONE).isoformat(),
     }
     payload.update(
         {

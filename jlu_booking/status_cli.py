@@ -15,6 +15,7 @@ STATUS_TEXT = {
     "no_result": "当日未预约成功",
     "token_invalid": "Token 已失效",
     "network_unavailable": "学校服务器或网络暂时不可用",
+    "account_blocked": "账号已被禁止预约",
     "daily_limit": "当日预约次数已用完",
     "submission_unknown": "最终提交结果无法确认",
     "stopped": "任务已停止",

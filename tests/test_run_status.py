@@ -25,6 +25,14 @@ def test_run_status_round_trip_is_atomic_and_privacy_safe(tmp_path):
     assert list(path.parent.glob(f".{path.name}.*")) == []
 
 
+def test_run_status_accepts_account_blocked_terminal_state(tmp_path):
+    path = tmp_path / "state" / "last_run.json"
+
+    run_status.write_run_status("account_blocked", path=path)
+
+    assert run_status.load_run_status(path)["status"] == "account_blocked"
+
+
 @pytest.mark.parametrize(
     "field",
     ["token", "companion_student_number", "companion_name", "server_result"],
@@ -73,3 +81,11 @@ def test_status_cli_prints_human_readable_result_without_private_values(
     assert "Token 已失效" in output
     assert "2026-09-18" in output
     assert "private-value" not in output
+
+
+def test_status_cli_reports_account_blocked(tmp_path, capsys):
+    path = tmp_path / "last_run.json"
+    run_status.write_run_status("account_blocked", path=path)
+
+    assert status_cli.main([], status_path=path) == 0
+    assert "账号已被禁止预约" in capsys.readouterr().out

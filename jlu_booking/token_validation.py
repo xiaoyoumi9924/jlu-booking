@@ -48,6 +48,22 @@ def _is_auth_rejection(exc: ServerResponseError) -> bool:
     )
 
 
+def _is_account_blocked_rejection(exc: ServerResponseError) -> bool:
+    text = _response_text(exc)
+    return any(
+        marker in text
+        for marker in (
+            "account_blocked",
+            "黑名单",
+            "账号异常",
+            "账号已被封禁",
+            "账号被封禁",
+            "账号冻结",
+            "请勿使用脚本预定",
+        )
+    )
+
+
 def _is_transport_failure(exc: BaseException) -> bool:
     current = exc
     while current is not None:
@@ -68,12 +84,20 @@ def validate_token_online(
     venue_name=DEFAULT_VENUE,
     sport_name=None,
     session=None,
+    request_guard=None,
+    request_hook=None,
+    error_hook=None,
 ):
     """Check a Token with a query-only endpoint without exposing its value."""
 
     sports = get_sports_for_venue(venue_name)
     selected_sport = sport_name if sport_name in sports else next(iter(sports))
     shop_num, sport_short_name = resolve_venue_sport(venue_name, selected_sport)
+
+    if request_guard is not None:
+        request_guard()
+    if request_hook is not None:
+        request_hook("query")
 
     try:
         query_courts(
@@ -84,10 +108,16 @@ def validate_token_online(
             session=session,
         )
     except ServerResponseError as exc:
+        if error_hook is not None:
+            error_hook(exc)
+        if _is_account_blocked_rejection(exc):
+            return TokenValidationResult("account_blocked", "account_blocked")
         if _is_auth_rejection(exc):
             return TokenValidationResult("invalid", "auth_rejected")
         return TokenValidationResult("unavailable", "server_rejected")
     except Exception as exc:
+        if error_hook is not None:
+            error_hook(exc)
         reason = "transport" if _is_transport_failure(exc) else "error"
         return TokenValidationResult("unavailable", reason)
 
