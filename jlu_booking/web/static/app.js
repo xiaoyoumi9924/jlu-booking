@@ -26,3 +26,24 @@ document.addEventListener("visibilitychange", () => {
   else configurePolling();
 });
 configurePolling();
+
+const revealedOutputs = new Set();
+function clearRevealedTokens() {
+  for (const output of revealedOutputs) output.textContent = "";
+  revealedOutputs.clear();
+}
+for (const button of document.querySelectorAll("[data-token-reveal]")) {
+  button.addEventListener("click", async () => {
+    const body = new URLSearchParams({csrf_token: button.dataset.csrf});
+    const response = await fetch(button.dataset.tokenReveal, {method: "POST", body});
+    if (!response.ok) return;
+    const payload = await response.json();
+    const userId = button.dataset.tokenReveal.split("/").at(-3);
+    const output = document.querySelector(`[data-token-output="${userId}"]`);
+    window.JLUBooking.setText(output, payload.token);
+    revealedOutputs.add(output);
+    setTimeout(() => { if (output) output.textContent = ""; revealedOutputs.delete(output); }, Number(payload.hide_after) * 1000);
+  });
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") clearRevealedTokens(); });
+window.addEventListener("pagehide", clearRevealedTokens);

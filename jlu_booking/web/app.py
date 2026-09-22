@@ -10,9 +10,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .accounts import AccountService
+from .audit import AuditService, ReauthenticationService
 from .credentials import CredentialService
 from .db import connect_database, migrate_database
-from .routes import auth, dashboard, profile, task_routes
+from .routes import admin, auth, dashboard, profile, task_routes
 from .security import CredentialCipher, PasswordService, ThrottleService
 from .sessions import SessionService
 from .settings import WebSettings
@@ -31,6 +32,8 @@ class AppServices:
     accounts: AccountService
     credentials: CredentialService
     tasks: TaskService | None = None
+    audit: AuditService | None = None
+    reauth: ReauthenticationService | None = None
 
 
 def _default_services(settings: WebSettings) -> AppServices:
@@ -47,10 +50,12 @@ def _default_services(settings: WebSettings) -> AppServices:
         pending_limit=settings.pending_limit,
         user_limit=settings.user_limit,
     )
+    reauth = ReauthenticationService(connection, passwords, throttles)
     credentials = CredentialService(
         connection,
         CredentialCipher(settings.token_key, settings.blind_key),
         throttles,
+        reauth_checker=lambda admin_id, now: reauth.is_valid(admin_id, now),
         user_limit=settings.user_limit,
     )
     return AppServices(
@@ -61,6 +66,8 @@ def _default_services(settings: WebSettings) -> AppServices:
         accounts,
         credentials,
         TaskService(connection, execution_limit=settings.daily_task_limit),
+        AuditService(connection),
+        reauth,
     )
 
 
@@ -75,6 +82,17 @@ def create_app(
             selected.connection,
             execution_limit=settings.daily_task_limit,
         )
+    if selected.audit is None:
+        selected.audit = AuditService(selected.connection)
+    if selected.reauth is None:
+        selected.reauth = ReauthenticationService(
+            selected.connection,
+            selected.passwords,
+            selected.throttles,
+        )
+    selected.credentials._reauth_checker = (
+        lambda admin_id, now: selected.reauth.is_valid(admin_id, now)
+    )
     app = FastAPI(title="JLU Booking", docs_url=None, redoc_url=None)
     app.state.settings = settings
     app.state.services = selected
@@ -100,4 +118,5 @@ def create_app(
     app.include_router(profile.router)
     app.include_router(dashboard.router)
     app.include_router(task_routes.router)
+    app.include_router(admin.router)
     return app

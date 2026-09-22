@@ -53,6 +53,7 @@ include = ["jlu_booking*"]
 [tool.setuptools.package-data]
 jlu_booking = [
   "web/templates/*.html",
+  "web/templates/admin/*.html",
   "web/static/*.css",
   "web/static/*.js",
   "web/static/*.png",

@@ -39,4 +39,7 @@ fieldset { border: 1px solid #CCD6E8; border-radius: 9px; padding: 12px; display
 .warning { color: #9A5300; }
 .danger { background: #A51D2D; }
 .summary-card { align-self: start; position: sticky; top: 20px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px; border-bottom: 1px solid #E1E7F0; vertical-align: top; }
 @media (max-width: 899px) { .shell-grid { grid-template-columns: 1fr; } .page { margin-top: 20px; } }
