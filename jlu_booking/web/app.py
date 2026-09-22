@@ -12,10 +12,11 @@ from fastapi.templating import Jinja2Templates
 from .accounts import AccountService
 from .credentials import CredentialService
 from .db import connect_database, migrate_database
-from .routes import auth, profile
+from .routes import auth, dashboard, profile, task_routes
 from .security import CredentialCipher, PasswordService, ThrottleService
 from .sessions import SessionService
 from .settings import WebSettings
+from .tasks import TaskService
 
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -29,6 +30,7 @@ class AppServices:
     throttles: ThrottleService
     accounts: AccountService
     credentials: CredentialService
+    tasks: TaskService | None = None
 
 
 def _default_services(settings: WebSettings) -> AppServices:
@@ -51,7 +53,15 @@ def _default_services(settings: WebSettings) -> AppServices:
         throttles,
         user_limit=settings.user_limit,
     )
-    return AppServices(connection, passwords, sessions, throttles, accounts, credentials)
+    return AppServices(
+        connection,
+        passwords,
+        sessions,
+        throttles,
+        accounts,
+        credentials,
+        TaskService(connection, execution_limit=settings.daily_task_limit),
+    )
 
 
 def create_app(
@@ -60,6 +70,11 @@ def create_app(
 ) -> FastAPI:
     selected = services or _default_services(settings)
     migrate_database(selected.connection)
+    if selected.tasks is None:
+        selected.tasks = TaskService(
+            selected.connection,
+            execution_limit=settings.daily_task_limit,
+        )
     app = FastAPI(title="JLU Booking", docs_url=None, redoc_url=None)
     app.state.settings = settings
     app.state.services = selected
@@ -83,5 +98,6 @@ def create_app(
 
     app.include_router(auth.router)
     app.include_router(profile.router)
+    app.include_router(dashboard.router)
+    app.include_router(task_routes.router)
     return app
-

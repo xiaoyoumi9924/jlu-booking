@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}任务 #{{ task.id }} · JLU 体育馆预约{% endblock %}
+{% block content %}
+<div class="dashboard-head"><h1>预约任务 #{{ task.id }}</h1><a href="/">返回面板</a></div>
+<div class="shell-grid" data-task-status-url="/tasks/{{ task.id }}/status" data-poll-ms="3000">
+  <section class="card">
+    <h2>任务状态</h2>
+    <p><span class="badge status-{{ task.status }}" data-task-status>{{ task.status }}</span></p>
+    <p>执行日：{{ task.execution_date }} · 目标日：{{ target_date }}</p>
+    <p>{{ task.venue }} · {{ task.sport }} · 首选 {{ task.preferred_court_number }} 号场</p>
+    <p>模式：{% if task.real_booking_enabled %}<strong class="warning">真实预约</strong>{% else %}仅扫描{% endif %}</p>
+    <div class="actions">
+      {% if task.status == 'scheduled' %}<a class="button secondary" href="/tasks/{{ task.id }}/edit">编辑</a>
+      <form method="post" action="/tasks/{{ task.id }}/cancel"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">取消任务</button></form>{% endif %}
+      {% if task.status == 'running' and not task.stop_requested_at %}<form method="post" action="/tasks/{{ task.id }}/stop"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger" type="submit">请求停止</button></form>{% endif %}
+    </div>
+  </section>
+  <section class="card">
+    <h2>运行日志</h2>
+    <pre class="log-region" data-log-region aria-live="polite">等待日志…</pre>
+  </section>
+</div>
+{% endblock %}

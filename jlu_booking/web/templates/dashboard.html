@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}预约面板 · JLU 体育馆预约{% endblock %}
+{% block content %}
+<div class="dashboard-head">
+  <div><h1>你好，{{ user.username }}</h1><p class="muted">下一执行日：{{ execution_date }} · 剩余名额：{{ remaining }}/10</p></div>
+  <a class="button" href="/tasks/new">创建一次性预约</a>
+</div>
+<div class="shell-grid" data-dashboard-poll="15000">
+  <section class="card">
+    <h2>账号准备状态</h2>
+    <dl><dt>Token</dt><dd class="masked">{{ token_masked }}</dd><dt>同行人</dt><dd>{{ companion_text }}</dd></dl>
+    <a href="/profile">管理 Token 和同行人</a>
+  </section>
+  <section class="card">
+    <h2>当前任务</h2>
+    {% if active_task %}
+      <p><span class="badge status-{{ active_task.status }}">{{ active_task.status }}</span></p>
+      <p>执行日期：{{ active_task.execution_date }}</p>
+      <a href="/tasks/{{ active_task.id }}">查看任务详情</a>
+    {% elif latest_task %}
+      <p>最近结果：<span class="badge status-{{ latest_task.status }}">{{ latest_task.status }}</span></p>
+      <a href="/tasks/{{ latest_task.id }}">查看最近任务</a>
+    {% else %}<p class="muted">暂无预约任务。</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

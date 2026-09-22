@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{% if task %}编辑任务{% else %}创建任务{% endif %} · JLU 体育馆预约{% endblock %}
+{% block content %}
+<div class="shell-grid">
+  <section class="card">
+    <h1>{% if task %}编辑预约任务{% else %}创建一次性预约{% endif %}</h1>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="{% if task %}/tasks/{{ task.id }}/edit{% else %}/tasks/new{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>预约日期
+        <select name="target_day" data-target-day>
+          <option value="today" {% if not task or task.target_day == 'today' %}selected{% endif %}>当天</option>
+          <option value="tomorrow" {% if task and task.target_day == 'tomorrow' %}selected{% endif %}>次日</option>
+        </select>
+      </label>
+      <label>场馆
+        <select name="venue">
+          {% for venue_name in venues %}<option value="{{ venue_name }}" {% if task and task.venue == venue_name %}selected{% endif %}>{{ venue_name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>运动项目
+        <select name="sport">
+          {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" {% if (task and task.sport == sport_name) or (not task and sport_name == '羽毛球') %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}
+        </select>
+      </label>
+      <label>首选场地号<input type="number" min="1" name="preferred_court_number" value="{{ task.preferred_court_number if task else 3 }}" required></label>
+      <fieldset><legend>时间优先级（按勾选顺序）</legend>
+        {% for start, end in priority_options %}
+        <label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" {% if not task or (start, end) in task.time_priority %}checked{% endif %}>{{ start }}–{{ end }}</label>
+        {% endfor %}
+      </fieldset>
+      <fieldset><legend>执行模式</legend>
+        <label class="check-row"><input type="radio" name="mode" value="scan" {% if not task or not task.real_booking_enabled %}checked{% endif %}>仅扫描（不会提交真实预约）</label>
+        <label class="check-row warning"><input type="radio" name="mode" value="real" {% if task and task.real_booking_enabled %}checked{% endif %}>真实预约（会向学校系统提交）</label>
+      </fieldset>
+      <button type="submit">确认保存</button>
+    </form>
+  </section>
+  <aside class="card summary-card" data-execution-date="{{ execution_date }}">
+    <h2>确认日期</h2>
+    <p>程序启动日：<strong>{{ execution_date }}</strong> 07:27（北京时间）</p>
+    <p>当前目标日：<strong data-target-date>{{ target_date }}</strong></p>
+    <p class="muted">07:27:00 后任务锁定；07:29:57 进入高速阶段；07:33:00 停止发出新请求。</p>
+  </aside>
+</div>
+{% endblock %}

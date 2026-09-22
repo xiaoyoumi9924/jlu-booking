@@ -25,4 +25,18 @@ button, .button { border: 0; padding: 10px 18px; background: #144399; color: whi
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 :focus-visible { outline: 3px solid #6FA1FF; outline-offset: 2px; }
 .log-region { max-height: 420px; overflow: auto; white-space: pre-wrap; font-family: ui-monospace, monospace; }
+.dashboard-head { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 22px; }
+.dashboard-head h1 { margin-bottom: 4px; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 10px 18px; }
+dt { font-weight: 700; color: #0B2F70; }
+dd { margin: 0; }
+fieldset { border: 1px solid #CCD6E8; border-radius: 9px; padding: 12px; display: grid; gap: 8px; }
+.check-row { grid-template-columns: 24px 1fr; align-items: center; font-weight: 500; }
+.check-row input { min-height: auto; }
+.badge { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #EAF1FF; color: #0B2F70; font-weight: 700; }
+.status-success { background: #E5F7EC; color: #126432; }
+.status-error, .status-account_blocked, .status-token_invalid { background: #FFF0F2; color: #A51D2D; }
+.warning { color: #9A5300; }
+.danger { background: #A51D2D; }
+.summary-card { align-self: start; position: sticky; top: 20px; }
 @media (max-width: 899px) { .shell-grid { grid-template-columns: 1fr; } .page { margin-top: 20px; } }

@@ -43,7 +43,7 @@ def _auth_destination(user) -> str:
     return "/profile"
 
 
-@router.get("/", include_in_schema=False)
+@router.get("/auth-home", include_in_schema=False)
 async def index(request: Request):
     _session, user = current_user(request)
     return RedirectResponse(_auth_destination(user) if user else "/login", 303)
@@ -205,4 +205,3 @@ async def change_password(
         max_age=7 * 24 * 3600,
     )
     return response
-
