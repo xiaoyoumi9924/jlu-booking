@@ -33,6 +33,8 @@ dd { margin: 0; }
 fieldset { border: 1px solid #CCD6E8; border-radius: 9px; padding: 12px; display: grid; gap: 8px; }
 .check-row { grid-template-columns: 24px 1fr; align-items: center; font-weight: 500; }
 .check-row input { min-height: auto; }
+.priority-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.mini { min-height: 36px; padding: 6px 10px; font-size: .9rem; }
 .badge { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #EAF1FF; color: #0B2F70; font-weight: 700; }
 .status-success { background: #E5F7EC; color: #126432; }
 .status-error, .status-account_blocked, .status-token_invalid { background: #FFF0F2; color: #A51D2D; }

@@ -126,6 +126,9 @@ def test_dashboard_and_create_show_exact_dates(web):
     assert "2026-09-22" in dashboard.text
     form = client.get("/tasks/new")
     assert "2026-09-22" in form.text
+    assert "data-priority-up" in form.text
+    assert "data-priority-down" in form.text
+    assert "data-target-date" in form.text
     response = client.post(
         "/tasks/new",
         data=_task_data(_csrf(form), target_day="tomorrow"),

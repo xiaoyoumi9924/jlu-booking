@@ -36,7 +36,7 @@ python3 -m venv .venv
 ## 4. 生成密钥并创建首个管理员
 
 ```bash
-sudo -u jlu-booking /opt/jlu-booking/.venv/bin/jlu-booking-web generate-keys --directory /etc/jlu-booking/secrets
+sudo /opt/jlu-booking/.venv/bin/jlu-booking-web generate-keys --directory /etc/jlu-booking/secrets
 sudo chmod 0600 /etc/jlu-booking/secrets/*.key
 sudo chown jlu-booking:jlu-booking /etc/jlu-booking/secrets/*.key
 sudo install -m 0640 -o root -g jlu-booking deploy/jlu-booking-web.env.example /etc/jlu-booking/web.env
@@ -83,6 +83,15 @@ sudo systemctl reload caddy
 ```
 
 网页中创建演练任务时保持“仅扫描”模式，并使用专门的本地假验证器或测试数据库；不要把真实 Token 写进命令、截图或工单。
+
+本版本的本地 HTTP 烟雾检查命令与结果：
+
+```text
+python -m pytest tests/web/test_web_smoke.py -v
+3 passed
+```
+
+该检查使用临时 SQLite、禁用 localhost 的 Secure Cookie、假 Token/同行人验证器和假工作进程；测试会在任何 `requests.Session.request` 调用发生时立即失败。它验证登录、注册、CSS、JavaScript、单用户完整流程及十用户隔离，不启动真实调度命令，也不访问学校接口。
 
 ## 9. 日常检查和备份
 

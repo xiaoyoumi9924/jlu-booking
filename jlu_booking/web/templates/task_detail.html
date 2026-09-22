@@ -5,7 +5,7 @@
 <div class="shell-grid" data-task-status-url="/tasks/{{ task.id }}/status" data-poll-ms="3000">
   <section class="card">
     <h2>任务状态</h2>
-    <p><span class="badge status-{{ task.status }}" data-task-status>{{ task.status }}</span></p>
+    <p><span class="badge status-{{ task.status }}" data-task-status>{% if task.status == 'success' %}预约成功{% else %}{{ task.status }}{% endif %}</span></p>
     <p>执行日：{{ task.execution_date }} · 目标日：{{ target_date }}</p>
     <p>{{ task.venue }} · {{ task.sport }} · 首选 {{ task.preferred_court_number }} 号场</p>
     <p>模式：{% if task.real_booking_enabled %}<strong class="warning">真实预约</strong>{% else %}仅扫描{% endif %}</p>

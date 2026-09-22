@@ -47,3 +47,36 @@ for (const button of document.querySelectorAll("[data-token-reveal]")) {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") clearRevealedTokens(); });
 window.addEventListener("pagehide", clearRevealedTokens);
+
+for (const button of document.querySelectorAll("[data-priority-up], [data-priority-down]")) {
+  button.addEventListener("click", () => {
+    const row = button.closest(".priority-row");
+    if (!row) return;
+    if (button.hasAttribute("data-priority-up") && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
+    if (button.hasAttribute("data-priority-down") && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
+  });
+}
+
+const targetDay = document.querySelector("[data-target-day]");
+const targetOutput = document.querySelector("[data-target-date]");
+const summary = document.querySelector("[data-execution-date]");
+function updateTargetDate() {
+  if (!targetDay || !targetOutput || !summary) return;
+  const parts = summary.dataset.executionDate.split("-").map(Number);
+  const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + (targetDay.value === "tomorrow" ? 1 : 0)));
+  targetOutput.textContent = date.toISOString().slice(0, 10);
+}
+if (targetDay) targetDay.addEventListener("change", updateTargetDate);
+updateTargetDate();
+
+const dashboardRoot = document.querySelector("[data-dashboard-poll]");
+let dashboardTimer = null;
+function configureDashboardPolling() {
+  if (!dashboardRoot || document.visibilityState !== "visible" || dashboardTimer) return;
+  dashboardTimer = setInterval(() => { if (document.visibilityState === "visible") window.location.reload(); }, Number(dashboardRoot.dataset.dashboardPoll || 15000));
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && dashboardTimer) { clearInterval(dashboardTimer); dashboardTimer = null; }
+  else configureDashboardPolling();
+});
+configureDashboardPolling();

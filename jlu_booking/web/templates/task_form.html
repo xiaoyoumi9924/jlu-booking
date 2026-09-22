@@ -26,7 +26,11 @@
       <label>首选场地号<input type="number" min="1" name="preferred_court_number" value="{{ task.preferred_court_number if task else 3 }}" required></label>
       <fieldset><legend>时间优先级（按勾选顺序）</legend>
         {% for start, end in priority_options %}
-        <label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" {% if not task or (start, end) in task.time_priority %}checked{% endif %}>{{ start }}–{{ end }}</label>
+        <div class="priority-row">
+          <label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" {% if not task or (start, end) in task.time_priority %}checked{% endif %}><span>{{ start }}–{{ end }}</span></label>
+          <button type="button" class="mini secondary" data-priority-up aria-label="上移 {{ start }}–{{ end }}">上移</button>
+          <button type="button" class="mini secondary" data-priority-down aria-label="下移 {{ start }}–{{ end }}">下移</button>
+        </div>
         {% endfor %}
       </fieldset>
       <fieldset><legend>执行模式</legend>
