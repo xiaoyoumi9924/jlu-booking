@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}注册 · JLU 体育馆预约{% endblock %}
+{% block page_class %}auth-page{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h1>创建账号</h1>
+  <p class="muted">账号需绑定有效 JLU Token 后才会占用正式名额。</p>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/register">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>用户名<input name="username" autocomplete="username" required></label>
+    <label>密码<input type="password" name="password" minlength="10" autocomplete="new-password" required></label>
+    <button type="submit">注册</button>
+  </form>
+  <p><a href="/login">返回登录</a></p>
+</section>
+{% endblock %}

@@ -37,6 +37,9 @@ def _parser() -> argparse.ArgumentParser:
     create_admin.add_argument("username")
     commands.add_parser("scheduler", help="运行独立预约调度器")
     commands.add_parser("backup", help="创建 SQLite 日备份")
+    serve = commands.add_parser("serve", help="运行本机 Web 服务")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", default=8000, type=int)
     return parser
 
 
@@ -172,6 +175,26 @@ def _run_scheduler(*, environ: Mapping[str, str]) -> int:
     return 0
 
 
+def _run_serve(
+    *,
+    environ: Mapping[str, str],
+    host: str,
+    port: int,
+) -> int:
+    import uvicorn
+
+    from .app import create_app
+
+    settings = WebSettings.from_env(environ, strict_permissions=True)
+    uvicorn.run(
+        create_app(settings),
+        host=str(host),
+        port=int(port),
+        workers=1,
+    )
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -195,4 +218,10 @@ def main(
     if args.command == "backup":
         print(_run_backup(environ=environment))
         return 0
+    if args.command == "serve":
+        return _run_serve(
+            environ=environment,
+            host=args.host,
+            port=args.port,
+        )
     raise SystemExit(f"未知命令：{args.command}")

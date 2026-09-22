@@ -1,0 +1,28 @@
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #F2F5FA; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+.topbar { min-height: 68px; background: #144399; color: white; display: flex; align-items: center; padding: 10px clamp(16px, 4vw, 48px); }
+.brand { color: white; text-decoration: none; display: flex; align-items: center; gap: 12px; font-weight: 700; }
+.brand img { width: 44px; height: 44px; object-fit: contain; background: white; border-radius: 8px; }
+.page { width: min(1120px, calc(100% - 32px)); margin: 32px auto; }
+.auth-page { display: grid; place-items: start center; }
+.card { background: white; border-radius: 14px; padding: clamp(20px, 4vw, 34px); box-shadow: 0 10px 28px rgba(11, 47, 112, .09); }
+.auth-card { width: min(100%, 460px); }
+.shell-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+h1, h2 { color: #0B2F70; }
+h1 { margin-top: 0; }
+h2 { margin-top: 24px; font-size: 1.15rem; }
+form { display: grid; gap: 14px; }
+label { display: grid; gap: 7px; font-weight: 600; }
+input, select, button, .button { min-height: 44px; border-radius: 8px; font: inherit; }
+input, select { border: 1px solid #AAB7CF; padding: 10px 12px; background: white; }
+button, .button { border: 0; padding: 10px 18px; background: #144399; color: white; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-grid; place-items: center; }
+.secondary { background: #EAF1FF; color: #0B2F70; }
+.secondary-form { margin-top: 14px; }
+.muted { color: #60708C; }
+.error { color: #A51D2D; background: #FFF0F2; border-left: 4px solid #A51D2D; padding: 10px 12px; }
+.masked { font-family: ui-monospace, SFMono-Regular, monospace; background: #F2F5FA; padding: 10px; border-radius: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+:focus-visible { outline: 3px solid #6FA1FF; outline-offset: 2px; }
+.log-region { max-height: 420px; overflow: auto; white-space: pre-wrap; font-family: ui-monospace, monospace; }
+@media (max-width: 899px) { .shell-grid { grid-template-columns: 1fr; } .page { margin-top: 20px; } }

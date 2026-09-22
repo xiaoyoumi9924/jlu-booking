@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}个人设置 · JLU 体育馆预约{% endblock %}
+{% block content %}
+<div class="shell-grid">
+  <section class="card">
+    <h1>个人设置</h1>
+    <p>账号：<strong>{{ user.username }}</strong></p>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <h2>JLU Token</h2>
+    <p class="masked">{{ masked_token }}</p>
+    <form method="post" action="/profile/token">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>替换 Token<input type="password" name="token" autocomplete="off" required></label>
+      <button type="submit">验证并替换</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>同行人</h2>
+    {% if companion_name %}<p>{{ companion_name }} · {{ masked_companion }}</p>{% else %}<p class="muted">尚未验证同行人</p>{% endif %}
+    <form method="post" action="/profile/companion">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>同行人学工号<input name="student_number" autocomplete="off" required></label>
+      <button type="submit">验证并保存</button>
+    </form>
+    <div class="actions">
+      <a class="button secondary" href="/change-password">修改密码</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="secondary">退出登录</button>
+      </form>
+    </div>
+  </section>
+</div>
+{% endblock %}

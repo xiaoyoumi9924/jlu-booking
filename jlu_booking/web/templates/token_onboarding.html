@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}绑定 Token · JLU 体育馆预约{% endblock %}
+{% block page_class %}auth-page{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h1>验证 JLU Token</h1>
+  <p class="muted">验证通过后账号才会正式启用。Token 会加密保存在服务器。</p>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/onboarding/token">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>JLU Token<input type="password" name="token" autocomplete="off" required></label>
+    <button type="submit">验证并启用</button>
+  </form>
+  <form method="post" action="/logout" class="secondary-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="secondary">退出登录</button>
+  </form>
+</section>
+{% endblock %}
