@@ -10,6 +10,7 @@ def build_auto_worker_command(
     real_booking_enabled: bool,
     executable: str | None = None,
     frozen: bool | None = None,
+    module: str = "jlu_booking.auto",
 ) -> list[str]:
     """Build the automatic-booking child command for source and packaged apps."""
 
@@ -18,7 +19,7 @@ def build_auto_worker_command(
     command = (
         [python_executable, "--auto-worker"]
         if is_frozen
-        else [python_executable, "-m", "jlu_booking.auto"]
+        else [python_executable, "-m", module]
     )
     if not real_booking_enabled:
         command.append("--dry-run")
