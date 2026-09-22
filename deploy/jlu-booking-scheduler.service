@@ -1,0 +1,24 @@
+[Unit]
+Description=JLU Booking Scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jlu-booking
+Group=jlu-booking
+WorkingDirectory=/opt/jlu-booking
+EnvironmentFile=/etc/jlu-booking/web.env
+ExecStart=/opt/jlu-booking/.venv/bin/jlu-booking-web scheduler
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jlu-booking
+
+[Install]
+WantedBy=multi-user.target

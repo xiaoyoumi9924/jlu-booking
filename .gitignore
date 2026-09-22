@@ -25,6 +25,7 @@ dist/
 .env
 .env.*
 !.env.example
+*.key
 credentials.json
 *token_cache*
 
@@ -34,8 +35,12 @@ config/*.json
 
 # Runtime output and local state
 runtime/
+runtime/web/
 logs/
 state/
+backups/
+*.sqlite3
+*.sqlite3-*
 *.log
 *.pid
 *.lock
