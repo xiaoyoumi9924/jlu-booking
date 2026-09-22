@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}用户管理 · JLU 体育馆预约{% endblock %}
+{% block content %}
+<div class="dashboard-head"><h1>用户管理</h1><a href="/admin">返回后台</a></div>
+<div class="table-wrap card"><table><thead><tr><th>用户</th><th>状态</th><th>Token</th><th>同行人</th><th>操作</th></tr></thead><tbody>
+{% for user, masked_token, companion in users %}<tr><td><a href="/admin/users/{{ user.id }}">{{ user.username }}</a></td><td>{{ user.status }}</td><td class="masked">{{ masked_token }}</td><td>{{ companion }}</td><td><div class="actions">
+{% if user.status == 'active' %}<form method="post" action="/admin/users/{{ user.id }}/disable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">停用</button></form>{% endif %}
+{% if user.status == 'disabled' %}<form method="post" action="/admin/users/{{ user.id }}/enable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">启用</button></form>{% endif %}
+{% if user.status == 'pending_token' %}<form method="post" action="/admin/users/{{ user.id }}/delete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger">删除</button></form>{% endif %}
+<form method="post" action="/admin/users/{{ user.id }}/reset-password" data-once-response><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">重置密码</button></form>
+<button type="button" class="secondary" data-token-reveal="/admin/users/{{ user.id }}/token/reveal" data-csrf="{{ csrf_token }}">查看 Token</button>
+</div><output data-token-output="{{ user.id }}"></output></td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

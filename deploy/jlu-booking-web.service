@@ -1,0 +1,22 @@
+[Unit]
+Description=JLU Booking Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jlu-booking
+Group=jlu-booking
+WorkingDirectory=/opt/jlu-booking
+EnvironmentFile=/etc/jlu-booking/web.env
+ExecStart=/opt/jlu-booking/.venv/bin/jlu-booking-web serve --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jlu-booking
+
+[Install]
+WantedBy=multi-user.target

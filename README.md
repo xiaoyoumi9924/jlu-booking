@@ -103,6 +103,12 @@ Token 在保存或替换前会做只读联网验证；无效 Token 和网络异�
 - [贡献指南](CONTRIBUTING.md)
 - [安全说明](SECURITY.md)
 
+## 可选 Web 版
+
+项目同时提供面向固定小规模用户的可选服务器网页：用户通过浏览器注册，分别绑定自己的 JLU Token 和同行人，并创建一次性自动预约任务。网页复用原有预约核心；桌面 GUI、命令行和本地定时方式继续保留。
+
+Web 版需要独立后端、SQLite、HTTPS 反向代理和调度服务。部署前请阅读 [Web 版服务器部署与运维](docs/web-deployment.md)，并坚持“Mac 本地修改和测试 → 提交并推送 GitHub → 服务器只拉取已提交版本”的更新流程。
+
 ## License
 
 [MIT](LICENSE)

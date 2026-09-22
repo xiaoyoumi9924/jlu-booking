@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}登录 · JLU 体育馆预约{% endblock %}
+{% block page_class %}auth-page{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h1>登录</h1>
+  <p class="muted">使用网页管理你的自动预约任务。</p>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/login">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>用户名<input name="username" autocomplete="username" required></label>
+    <label>密码<input type="password" name="password" autocomplete="current-password" required></label>
+    <button type="submit">登录</button>
+  </form>
+  <p><a href="/register">还没有账号？公开注册</a></p>
+</section>
+{% endblock %}

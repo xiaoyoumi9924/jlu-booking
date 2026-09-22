@@ -32,12 +32,28 @@ PRODUCTION_LITERAL_CREDENTIAL = re.compile(
 
 def tracked_paths() -> list[Path]:
     result = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=PROJECT_DIR,
         check=True,
         capture_output=True,
     )
     return [PROJECT_DIR / item.decode() for item in result.stdout.split(b"\0") if item]
+
+
+def is_private_path(value: str) -> bool:
+    relative = str(value).replace("\\", "/").lstrip("./")
+    name = Path(relative).name
+    if name == ".env" or (name.startswith(".env.") and name != ".env.example"):
+        return True
+    if name.endswith(".key"):
+        return True
+    if name.endswith(".sqlite3") or ".sqlite3-" in name:
+        return True
+    if relative.startswith(("runtime/", "logs/", "state/", "backups/")):
+        return True
+    if "/backups/" in f"/{relative}" or "/runtime/web/" in f"/{relative}":
+        return True
+    return relative in FORBIDDEN_TRACKED_PATHS
 
 
 def check_example_config(errors: list[str]) -> None:
@@ -80,11 +96,9 @@ def run_checks() -> list[str]:
     paths = tracked_paths()
     relative_paths = {path.relative_to(PROJECT_DIR).as_posix() for path in paths}
 
-    for forbidden in sorted(FORBIDDEN_TRACKED_PATHS & relative_paths):
-        errors.append(f"Private file is tracked by Git: {forbidden}")
     for relative in sorted(relative_paths):
-        if relative.startswith(FORBIDDEN_TRACKED_PREFIXES):
-            errors.append(f"Runtime data or build output is tracked by Git: {relative}")
+        if is_private_path(relative) or relative.startswith(FORBIDDEN_TRACKED_PREFIXES):
+            errors.append(f"Private runtime data or build output is tracked by Git: {relative}")
 
     for path in paths:
         relative = path.relative_to(PROJECT_DIR).as_posix()

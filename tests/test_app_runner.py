@@ -23,3 +23,12 @@ def test_packaged_auto_worker_reuses_executable():
         executable="JLU Booking.exe",
         frozen=True,
     ) == ["JLU Booking.exe", "--auto-worker"]
+
+
+def test_source_auto_worker_command_accepts_explicit_module():
+    assert build_auto_worker_command(
+        real_booking_enabled=False,
+        executable="python-web",
+        frozen=False,
+        module="jlu_booking.auto",
+    ) == ["python-web", "-m", "jlu_booking.auto", "--dry-run"]

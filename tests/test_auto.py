@@ -13,6 +13,9 @@ from jlu_booking.config import DEFAULT_AUTO_CONFIG, save_auto_config
 from jlu_booking.token_validation import TokenValidationResult
 
 
+BEIJING = ZoneInfo("Asia/Shanghai")
+
+
 def _slot(court_name, place_short_name, start, end):
     return {
         "court_name": court_name,
@@ -198,7 +201,7 @@ def _prepare_loop_test(monkeypatch, phases):
     monkeypatch.setattr(
         auto,
         "now_local",
-        lambda: datetime(2026, 9, 10, 7, 29).astimezone(),
+        lambda: datetime(2026, 9, 10, 7, 29, tzinfo=BEIJING),
     )
     monkeypatch.setattr(auto.time, "sleep", lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
@@ -218,7 +221,7 @@ def test_finished_loop_records_no_result_status(monkeypatch):
     monkeypatch.setattr(
         auto,
         "now_local",
-        lambda: datetime(2026, 9, 10, 22, 30).astimezone(),
+        lambda: datetime(2026, 9, 10, 22, 30, tzinfo=BEIJING),
     )
     monkeypatch.setattr(
         auto,
@@ -371,7 +374,7 @@ def test_warmup_response_after_core_start_does_not_add_stale_wait(monkeypatch):
         "real_booking_enabled": True,
     }
     auto.apply_runtime_settings(settings)
-    clock = [datetime(2026, 9, 20, 7, 29, 56, 800000).astimezone()]
+    clock = [datetime(2026, 9, 20, 7, 29, 56, 800000, tzinfo=BEIJING)]
     target = _target()
     sleeps = []
     queries = []
@@ -386,7 +389,7 @@ def test_warmup_response_after_core_start_does_not_add_stale_wait(monkeypatch):
 
     def query(**kwargs):
         queries.append(kwargs)
-        clock[0] = datetime(2026, 9, 20, 7, 29, 57, 100000).astimezone()
+        clock[0] = datetime(2026, 9, 20, 7, 29, 57, 100000, tzinfo=BEIJING)
         return [target]
 
     monkeypatch.setattr(auto, "query_courts", query)
@@ -678,9 +681,9 @@ def test_query_returning_at_deadline_does_not_start_canbook(monkeypatch):
     target = _target()
     moments = iter(
         [
-            datetime(2026, 9, 20, 7, 32, 59, 900000).astimezone(),
-            datetime(2026, 9, 20, 7, 32, 59, 900000).astimezone(),
-            datetime(2026, 9, 20, 7, 33).astimezone(),
+            datetime(2026, 9, 20, 7, 32, 59, 900000, tzinfo=BEIJING),
+            datetime(2026, 9, 20, 7, 32, 59, 900000, tzinfo=BEIJING),
+            datetime(2026, 9, 20, 7, 33, tzinfo=BEIJING),
         ]
     )
     canbook_calls = []
@@ -1475,7 +1478,7 @@ def test_request_timing_uses_a_separate_log(tmp_path, monkeypatch):
     monkeypatch.setattr(
         auto,
         "now_local",
-        lambda: datetime(2026, 9, 10, 7, 30).astimezone(),
+        lambda: datetime(2026, 9, 10, 7, 30, tzinfo=BEIJING),
     )
     monotonic_values = iter([10.0, 11.582])
     monkeypatch.setattr(auto.time, "monotonic", lambda: next(monotonic_values))
@@ -1517,7 +1520,7 @@ def test_request_timing_error_does_not_write_server_message(
 
 def test_run_statistics_count_requests_and_failures(monkeypatch):
     stats = auto.RunStatistics(
-        started_at=datetime(2026, 9, 20, 7, 27).astimezone()
+        started_at=datetime(2026, 9, 20, 7, 27, tzinfo=BEIJING)
     )
     monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
 
@@ -1556,7 +1559,7 @@ def test_run_statistics_count_requests_and_failures(monkeypatch):
 
 def test_run_statistics_distinguish_http_and_transport_errors(monkeypatch):
     stats = auto.RunStatistics(
-        started_at=datetime(2026, 9, 20, 7, 27).astimezone()
+        started_at=datetime(2026, 9, 20, 7, 27, tzinfo=BEIJING)
     )
     monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
     http_error = RuntimeError("请求学校服务器失败")
@@ -1579,7 +1582,7 @@ def test_run_statistics_distinguish_http_and_transport_errors(monkeypatch):
 
 def test_http_429_is_counted_as_http_error(monkeypatch):
     stats = auto.RunStatistics(
-        started_at=datetime(2026, 9, 20, 7, 27).astimezone()
+        started_at=datetime(2026, 9, 20, 7, 27, tzinfo=BEIJING)
     )
     monkeypatch.setattr(auto, "timing_log", lambda *_args, **_kwargs: None)
     error = RuntimeError("请求学校服务器失败：429 Too Many Requests")
@@ -1598,14 +1601,14 @@ def test_http_429_is_counted_as_http_error(monkeypatch):
 
 def test_statistics_report_prints_stop_reason_and_success_target(capsys):
     stats = auto.RunStatistics(
-        started_at=datetime(2026, 9, 20, 7, 27).astimezone(),
+        started_at=datetime(2026, 9, 20, 7, 27, tzinfo=BEIJING),
         stop_reason="BOOKING_SUCCESS",
         booked_slot=_target(),
     )
 
     auto.report_run_statistics(
         stats,
-        ended_at=datetime(2026, 9, 20, 7, 30, 1).astimezone(),
+        ended_at=datetime(2026, 9, 20, 7, 30, 1, tzinfo=BEIJING),
     )
 
     output = capsys.readouterr().out
@@ -1817,7 +1820,7 @@ def test_real_booking_stops_after_daily_limit_response(
     monkeypatch.setattr(
         auto,
         "now_local",
-        lambda: datetime(2026, 9, 9, 7, 30).astimezone(),
+        lambda: datetime(2026, 9, 9, 7, 30, tzinfo=BEIJING),
     )
     monkeypatch.setattr(auto, "query_courts", lambda **_kwargs: {})
     monkeypatch.setattr(auto, "extract_available_slots", lambda _data: [target])

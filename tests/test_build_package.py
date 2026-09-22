@@ -26,3 +26,16 @@ def test_package_versions_match():
 
     assert version_match is not None
     assert version_match.group(1) == __version__
+
+
+def test_web_templates_and_static_assets_are_packaged():
+    root = Path(__file__).resolve().parent.parent
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"web/templates/*.html"' in pyproject
+    assert '"web/templates/admin/*.html"' in pyproject
+    assert '"web/static/*.css"' in pyproject
+    assert '"web/static/*.js"' in pyproject
+    assert '"web/static/*.png"' in pyproject
+    assert (root / "jlu_booking/web/static/JLU_LOGO.png").read_bytes() == (
+        root / "assets/JLU_LOGO.png"
+    ).read_bytes()
