@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 from dataclasses import replace
 from datetime import datetime
@@ -83,8 +84,9 @@ def test_worker_launch_isolates_paths_and_keeps_token_out_of_files(
     assert launch.environment["SAFE_PARENT"] == "yes"
     assert "private-token" not in config_text
     assert "private-token" not in " ".join(launch.command)
-    assert oct(launch.config_path.stat().st_mode & 0o777) == "0o600"
-    assert oct(launch.runtime_dir.stat().st_mode & 0o777) == "0o700"
+    if os.name != "nt":
+        assert oct(launch.config_path.stat().st_mode & 0o777) == "0o600"
+        assert oct(launch.runtime_dir.stat().st_mode & 0o777) == "0o700"
 
 
 def test_two_users_receive_disjoint_paths(tmp_path, task):

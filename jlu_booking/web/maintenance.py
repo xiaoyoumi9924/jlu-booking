@@ -167,7 +167,7 @@ class BackupService:
                 destination.close()
             if os.name != "nt":
                 temporary.chmod(0o600)
-            with temporary.open("rb") as backup_file:
+            with temporary.open("r+b") as backup_file:
                 os.fsync(backup_file.fileno())
             os.replace(temporary, target)
             if os.name != "nt":
