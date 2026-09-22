@@ -7,6 +7,8 @@ import base64
 import getpass
 import os
 import secrets
+import signal
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +35,8 @@ def _parser() -> argparse.ArgumentParser:
 
     create_admin = commands.add_parser("create-admin", help="创建管理账号")
     create_admin.add_argument("username")
+    commands.add_parser("scheduler", help="运行独立预约调度器")
+    commands.add_parser("backup", help="创建 SQLite 日备份")
     return parser
 
 
@@ -116,6 +120,58 @@ def _create_admin(
     return 0
 
 
+def _run_backup(*, environ: Mapping[str, str]) -> str:
+    from .maintenance import BackupService
+
+    settings = WebSettings.from_env(environ)
+    connection = connect_database(settings.database_path)
+    try:
+        migrate_database(connection)
+        path = BackupService(connection, settings.backup_dir).create(
+            datetime.now(BEIJING)
+        )
+    finally:
+        connection.close()
+    return str(path)
+
+
+def _run_scheduler(*, environ: Mapping[str, str]) -> int:
+    from .credentials import CredentialService
+    from .maintenance import MaintenanceService
+    from .scheduler import Scheduler
+    from .security import CredentialCipher
+    from .worker import WorkerAdapter
+
+    settings = WebSettings.from_env(environ)
+    connection = connect_database(settings.database_path)
+    migrate_database(connection)
+    cipher = CredentialCipher(settings.token_key, settings.blind_key)
+    credentials = CredentialService(
+        connection,
+        cipher,
+        ThrottleService(connection),
+        user_limit=settings.user_limit,
+    )
+    worker = WorkerAdapter(credentials, settings)
+    maintenance = MaintenanceService(connection, settings.runtime_root)
+    scheduler = Scheduler(connection, worker, maintenance=maintenance)
+    stop_event = threading.Event()
+
+    def request_stop(_signum, _frame):
+        stop_event.set()
+
+    previous = {}
+    try:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous[signum] = signal.signal(signum, request_stop)
+        scheduler.run_forever(stop_event=stop_event)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+        connection.close()
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -134,4 +190,9 @@ def main(
             environ=environment,
             password_reader=reader,
         )
+    if args.command == "scheduler":
+        return _run_scheduler(environ=environment)
+    if args.command == "backup":
+        print(_run_backup(environ=environment))
+        return 0
     raise SystemExit(f"未知命令：{args.command}")

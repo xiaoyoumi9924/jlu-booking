@@ -95,3 +95,19 @@ def test_create_admin_rejects_password_mismatch(tmp_path):
             environ=environ,
             password_reader=lambda _prompt: next(answers),
         )
+
+
+def test_backup_command_prints_only_created_path(monkeypatch, capsys):
+    expected = "/safe/backups/2026-09-22.sqlite3"
+    monkeypatch.setattr(cli, "_run_backup", lambda *, environ: expected)
+    assert cli.main(["backup"], environ={}) == 0
+    assert capsys.readouterr().out.strip() == expected
+
+
+def test_scheduler_command_dispatches_without_printing_secrets(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(cli, "_run_scheduler", lambda *, environ: calls.append(environ) or 0)
+    environment = {"PRIVATE": "must-not-print"}
+    assert cli.main(["scheduler"], environ=environment) == 0
+    assert calls == [environment]
+    assert "must-not-print" not in capsys.readouterr().out
