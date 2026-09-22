@@ -12,6 +12,7 @@ from ..db import transaction
 from ..dependencies import client_ip, current_user, now_beijing, require_csrf
 from ..security import mask_secret
 from ..tasks import TaskError
+from .task_routes import read_private_log_lines, read_private_phase
 
 
 router = APIRouter(prefix="/admin")
@@ -101,18 +102,35 @@ async def _account_action(request, user_id, csrf_token, action):
     session, admin = _admin(request)
     require_csrf(request, csrf_token, session)
     now = now_beijing()
+    if action == "disable":
+        audit_action = "user_disabled"
+        service_action = request.app.state.services.accounts.disable
+    elif action == "enable":
+        audit_action = "user_enabled"
+        service_action = request.app.state.services.accounts.enable
+    else:
+        raise HTTPException(404, "页面不存在。")
     try:
-        if action == "disable":
-            request.app.state.services.accounts.disable(user_id, now=now)
-            audit_action = "user_disabled"
-        elif action == "enable":
-            request.app.state.services.accounts.enable(user_id, now=now)
-            audit_action = "user_enabled"
-        else:
-            raise HTTPException(404, "页面不存在。")
+        service_action(
+            user_id,
+            now=now,
+            on_success=lambda: _audit(
+                request,
+                admin,
+                audit_action,
+                user_id,
+                {"outcome": "success"},
+            ),
+        )
     except AccountError as exc:
+        _audit(
+            request,
+            admin,
+            audit_action,
+            None,
+            {"outcome": "failure", "reason": type(exc).__name__},
+        )
         raise HTTPException(409, str(exc)) from exc
-    _audit(request, admin, audit_action, user_id)
     return RedirectResponse("/admin/users", 303)
 
 
@@ -130,17 +148,34 @@ async def enable_user(request: Request, user_id: int, csrf_token: str = Form("")
 async def delete_pending(request: Request, user_id: int, csrf_token: str = Form("")):
     session, admin = _admin(request)
     require_csrf(request, csrf_token, session)
-    with transaction(request.app.state.services.connection, immediate=True):
-        exists = request.app.state.services.connection.execute(
-            "SELECT 1 FROM users WHERE id=? AND role='user' AND status='pending_token'",
-            (user_id,),
-        ).fetchone()
-        if exists is None:
-            raise HTTPException(404, "页面不存在。")
-        _audit(request, admin, "pending_deleted", user_id)
-        request.app.state.services.connection.execute(
-            "DELETE FROM users WHERE id=?", (user_id,)
+    try:
+        with transaction(request.app.state.services.connection, immediate=True):
+            exists = request.app.state.services.connection.execute(
+                "SELECT username FROM users WHERE id=? AND role='user' "
+                "AND status='pending_token'",
+                (user_id,),
+            ).fetchone()
+            if exists is None:
+                raise LookupError("pending user not found")
+            _audit(
+                request,
+                admin,
+                "pending_deleted",
+                user_id,
+                {"outcome": "success", "target_username": exists["username"]},
+            )
+            request.app.state.services.connection.execute(
+                "DELETE FROM users WHERE id=?", (user_id,)
+            )
+    except LookupError as exc:
+        _audit(
+            request,
+            admin,
+            "pending_deleted",
+            None,
+            {"outcome": "failure", "reason": "UserNotFound"},
         )
+        raise HTTPException(404, "页面不存在。") from exc
     return RedirectResponse("/admin/users", 303)
 
 
@@ -150,10 +185,27 @@ async def reset_password(request: Request, user_id: int, csrf_token: str = Form(
     require_csrf(request, csrf_token, session)
     temporary = secrets.token_urlsafe(18)[:16]
     try:
-        request.app.state.services.accounts.reset_password(user_id, temporary, now=now_beijing())
+        await request.app.state.services.accounts.reset_password_async(
+            user_id,
+            temporary,
+            now=now_beijing(),
+            on_success=lambda: _audit(
+                request,
+                admin,
+                "password_reset",
+                user_id,
+                {"outcome": "success"},
+            ),
+        )
     except AccountError as exc:
+        _audit(
+            request,
+            admin,
+            "password_reset",
+            None,
+            {"outcome": "failure", "reason": type(exc).__name__},
+        )
         raise HTTPException(404, "页面不存在。") from exc
-    _audit(request, admin, "password_reset", user_id)
     response = JSONResponse({"temporary_password": temporary})
     response.headers["Cache-Control"] = "no-store, private"
     return response
@@ -177,16 +229,30 @@ async def reauth(
     session, admin = _admin(request)
     require_csrf(request, csrf_token, session)
     try:
-        request.app.state.services.reauth.grant(
-            admin.id, session.id, password, now=now_beijing()
+        await request.app.state.services.reauth.grant_async(
+            admin.id,
+            session.id,
+            password,
+            now=now_beijing(),
+            on_success=lambda: _audit(
+                request,
+                admin,
+                "admin_reauthenticated",
+                metadata={"outcome": "success"},
+            ),
         )
     except (PermissionError, AccountError) as exc:
+        _audit(
+            request,
+            admin,
+            "admin_reauthentication_failed",
+            metadata={"outcome": "failure", "reason": type(exc).__name__},
+        )
         return request.app.state.templates.TemplateResponse(
             request=request, name="admin/reauth.html",
             context={"admin": admin, "csrf_token": session.csrf_token, "error": str(exc)},
             status_code=403,
         )
-    _audit(request, admin, "admin_reauthenticated")
     return RedirectResponse("/admin/users", 303)
 
 
@@ -221,6 +287,38 @@ async def tasks(request: Request):
     )
 
 
+@router.get("/tasks/{task_id}")
+async def task_detail(request: Request, task_id: int):
+    session, admin = _admin(request)
+    services = request.app.state.services
+    row = services.connection.execute(
+        "SELECT t.*, u.username FROM booking_tasks t "
+        "JOIN users u ON u.id=t.user_id WHERE t.id=?",
+        (task_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "页面不存在。")
+    task = services.tasks._record(row)
+    run = services.connection.execute(
+        "SELECT started_at, finished_at, exit_code, final_status, detail "
+        "FROM task_runs WHERE task_id=?",
+        (task_id,),
+    ).fetchone()
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="admin/task_detail.html",
+        context={
+            "admin": admin,
+            "csrf_token": session.csrf_token,
+            "task": task,
+            "username": row["username"],
+            "run": run,
+            "phase": read_private_phase(request, task_id),
+            "log_lines": read_private_log_lines(request, task_id, task.user_id),
+        },
+    )
+
+
 @router.post("/tasks/{task_id}/stop")
 async def stop_task(request: Request, task_id: int, csrf_token: str = Form("")):
     session, admin = _admin(request)
@@ -232,11 +330,30 @@ async def stop_task(request: Request, task_id: int, csrf_token: str = Form("")):
         raise HTTPException(404, "页面不存在。")
     try:
         request.app.state.services.tasks.request_stop(
-            row["user_id"], task_id, now=now_beijing()
+            row["user_id"],
+            task_id,
+            now=now_beijing(),
+            on_success=lambda: _audit(
+                request,
+                admin,
+                "task_stop_requested",
+                row["user_id"],
+                {"task_id": str(task_id), "outcome": "success"},
+            ),
         )
     except TaskError as exc:
+        _audit(
+            request,
+            admin,
+            "task_stop_requested",
+            row["user_id"],
+            {
+                "task_id": str(task_id),
+                "outcome": "failure",
+                "reason": type(exc).__name__,
+            },
+        )
         raise HTTPException(409, str(exc)) from exc
-    _audit(request, admin, "task_stop_requested", row["user_id"], {"task_id": str(task_id)})
     return RedirectResponse("/admin/tasks", 303)
 
 

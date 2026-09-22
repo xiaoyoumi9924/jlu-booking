@@ -103,3 +103,34 @@ def test_maintenance_refuses_symlink_runtime_root(tmp_path):
             datetime(2026, 9, 22, 3, 15, tzinfo=BEIJING)
         )
 
+
+def test_maintenance_removes_old_terminal_runtime_directory(tmp_path):
+    now = datetime(2026, 9, 22, 3, 15, tzinfo=BEIJING)
+    connection = connect_database(tmp_path / "web.sqlite3")
+    migrate_database(connection)
+    user_id = connection.execute(
+        "INSERT INTO users (username,password_hash,role,status,created_at) "
+        "VALUES ('alice','hash','user','active',?)", (now.isoformat(),)
+    ).lastrowid
+    companion_id = connection.execute(
+        "INSERT INTO companions (user_id,student_number_ciphertext,name_ciphertext,verified_at,updated_at) "
+        "VALUES (?,X'01',X'02',?,?)", (user_id, now.isoformat(), now.isoformat())
+    ).lastrowid
+    task_id = connection.execute(
+        "INSERT INTO booking_tasks (user_id,execution_date,target_day,venue,sport,companion_id,preferred_court_number,time_priority_json,status,created_at,updated_at) "
+        "VALUES (?,'2026-08-01','today','前卫体育馆','羽毛球',?,3,'[]','success',?,?)",
+        (user_id, companion_id, now.isoformat(), now.isoformat()),
+    ).lastrowid
+    runtime = tmp_path / "runtime" / f"user-{user_id}" / f"task-{task_id}"
+    runtime.mkdir(parents=True)
+    (runtime / "auto_booking.json").write_text("private", encoding="utf-8")
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(runtime, (old, old))
+    connection.execute(
+        "INSERT INTO task_runs (task_id,runtime_path,log_path,started_at,finished_at,final_status) "
+        "VALUES (?,?,?,?,?,'success')",
+        (task_id, str(runtime), str(runtime / 'worker.log'), now.isoformat(), now.isoformat()),
+    )
+    result = MaintenanceService(connection, tmp_path / "runtime").run(now)
+    assert result.deleted_runtime_directories == 1
+    assert not runtime.exists()

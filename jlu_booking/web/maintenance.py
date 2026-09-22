@@ -24,6 +24,7 @@ class MaintenanceResult:
     expired_throttles: int
     expired_pending_users: int
     deleted_logs: int
+    deleted_runtime_directories: int = 0
 
 
 @dataclass(frozen=True)
@@ -53,12 +54,54 @@ class MaintenanceService:
                 (now.isoformat(),),
             ).rowcount
         deleted_logs = self._delete_old_logs(now)
+        deleted_runtime_directories = self._delete_old_runtime_directories(now)
         return MaintenanceResult(
             expired_sessions=sessions,
             expired_throttles=throttles,
             expired_pending_users=pending,
             deleted_logs=deleted_logs,
+            deleted_runtime_directories=deleted_runtime_directories,
         )
+
+    def _delete_old_runtime_directories(self, now: datetime) -> int:
+        root = self._runtime_root
+        if root.is_symlink() or not root.exists():
+            return 0
+        resolved_root = root.resolve(strict=False)
+        cutoff = (now - LOG_RETENTION).timestamp()
+        rows = self._connection.execute(
+            "SELECT r.runtime_path FROM task_runs r JOIN booking_tasks t ON t.id=r.task_id "
+            "WHERE t.status NOT IN ('scheduled','running') AND r.runtime_path != ''"
+        ).fetchall()
+        removed = 0
+        for row in rows:
+            candidate = Path(row["runtime_path"])
+            if candidate.is_symlink() or not candidate.is_dir():
+                continue
+            try:
+                candidate.resolve(strict=False).relative_to(resolved_root)
+            except ValueError:
+                continue
+            try:
+                if candidate.stat().st_mtime >= cutoff:
+                    continue
+            except OSError:
+                continue
+            for current, directories, filenames in os.walk(
+                candidate, topdown=False, followlinks=False
+            ):
+                current_path = Path(current)
+                for filename in filenames:
+                    (current_path / filename).unlink(missing_ok=True)
+                for directory in directories:
+                    child = current_path / directory
+                    if child.is_symlink():
+                        child.unlink(missing_ok=True)
+                    else:
+                        child.rmdir()
+            candidate.rmdir()
+            removed += 1
+        return removed
 
     def _delete_old_logs(self, now: datetime) -> int:
         root = self._runtime_root
@@ -139,4 +182,3 @@ class BackupService:
         for path in backups[: max(0, len(backups) - self._retention)]:
             if not path.is_symlink():
                 path.unlink(missing_ok=True)
-

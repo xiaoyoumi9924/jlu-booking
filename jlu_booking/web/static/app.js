@@ -13,6 +13,7 @@ async function refreshTask() {
   if (!response.ok) return;
   const payload = await response.json();
   window.JLUBooking.setText(document.querySelector("[data-task-status]"), payload.status);
+  window.JLUBooking.setText(document.querySelector("[data-task-phase]"), payload.phase || "尚未开始");
   window.JLUBooking.setText(document.querySelector("[data-log-region]"), payload.log_lines.join("\n"));
   if (terminalStates.has(payload.status) && taskTimer) { clearInterval(taskTimer); taskTimer = null; }
 }
@@ -26,6 +27,13 @@ document.addEventListener("visibilitychange", () => {
   else configurePolling();
 });
 configurePolling();
+
+for (const form of document.querySelectorAll("[data-confirm-stop]")) {
+  form.addEventListener("submit", (event) => {
+    const message = "停止任务不代表预约一定未提交。请确认已理解，并在学校系统核对最终结果。";
+    if (!window.confirm(message)) event.preventDefault();
+  });
+}
 
 const revealedOutputs = new Set();
 function clearRevealedTokens() {

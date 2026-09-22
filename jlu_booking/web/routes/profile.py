@@ -49,7 +49,7 @@ async def token_onboarding(
         return redirect
     require_csrf(request, csrf_token, session)
     try:
-        request.app.state.services.credentials.activate_user(
+        await request.app.state.services.credentials.activate_user_async(
             user.id, token, now=now_beijing()
         )
     except CredentialError as exc:
@@ -108,7 +108,7 @@ async def save_companion(
         return redirect
     require_csrf(request, csrf_token, session)
     try:
-        request.app.state.services.credentials.save_companion(
+        await request.app.state.services.credentials.save_companion_async(
             user.id, student_number, now=now_beijing()
         )
     except CredentialError as exc:
@@ -132,7 +132,7 @@ async def replace_token(
         return redirect
     require_csrf(request, csrf_token, session)
     try:
-        request.app.state.services.credentials.replace_token(
+        await request.app.state.services.credentials.replace_token_async(
             user.id, token, now=now_beijing()
         )
     except CredentialError as exc:
@@ -143,4 +143,3 @@ async def replace_token(
             status_code=400,
         )
     return RedirectResponse("/profile", 303)
-

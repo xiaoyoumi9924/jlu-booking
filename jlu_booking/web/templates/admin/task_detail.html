@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}任务 #{{ task.id }} · 管理后台{% endblock %}
+{% block content %}
+<div class="dashboard-head"><h1>任务 #{{ task.id }}</h1><a href="/admin/tasks">返回任务列表</a></div>
+<div class="shell-grid">
+  <section class="card">
+    <h2>任务信息</h2>
+    <p>用户：{{ username }}</p>
+    <p>状态：<span class="badge status-{{ task.status }}">{{ task.status }}</span></p>
+    <p>运行阶段：{{ phase or "尚未开始" }}</p>
+    <p>执行日：{{ task.execution_date }} · {{ task.venue }} · {{ task.sport }}</p>
+    <p>首选场地：{{ task.preferred_court_number }} 号场</p>
+    {% if run %}
+    <p>开始：{{ run.started_at }}{% if run.finished_at %} · 结束：{{ run.finished_at }}{% endif %}</p>
+    <p>最终状态：{{ run.final_status or "运行中" }}{% if run.exit_code is not none %} · 退出码：{{ run.exit_code }}{% endif %}</p>
+    {% if run.detail %}<p>结果说明：{{ run.detail }}</p>{% endif %}
+    {% endif %}
+    {% if task.status == 'running' and not task.stop_requested_at %}
+    <form method="post" action="/admin/tasks/{{ task.id }}/stop" data-confirm-stop>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="danger" type="submit">请求停止</button>
+    </form>
+    <p class="warning">停止任务不代表预约一定未提交；若请求已经发出，请到学校系统核对最终结果。</p>
+    {% endif %}
+  </section>
+  <section class="card">
+    <h2>脱敏运行日志</h2>
+    <pre class="log-region">{% if log_lines %}{{ log_lines | join('\n') }}{% else %}暂无日志{% endif %}</pre>
+  </section>
+</div>
+{% endblock %}

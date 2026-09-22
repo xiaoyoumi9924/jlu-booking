@@ -277,3 +277,40 @@ def test_credential_status_follows_worker_security_result(
         "SELECT last_status FROM user_credentials WHERE user_id = ?", (user_id,)
     ).fetchone()[0] == final_status
 
+
+@pytest.mark.parametrize(
+    ("user_status", "credential_status"),
+    [("disabled", "valid"), ("active", "token_invalid")],
+)
+def test_scheduler_refuses_ineligible_task_owner(
+    database, tmp_path, user_status, credential_status
+):
+    user_id, task_id = _insert_task(database, username="alice")
+    database.execute("UPDATE users SET status=? WHERE id=?", (user_status, user_id))
+    database.execute(
+        "UPDATE user_credentials SET last_status=? WHERE user_id=?",
+        (credential_status, user_id),
+    )
+    worker = FakeWorker(tmp_path / "runtime")
+    Scheduler(database, worker).run_once(
+        datetime(2026, 9, 22, 7, 27, tzinfo=BEIJING)
+    )
+    assert worker.started_task_ids == []
+    assert database.execute(
+        "SELECT status FROM booking_tasks WHERE id=?", (task_id,)
+    ).fetchone()[0] == "error"
+
+
+def test_prior_day_scheduled_task_is_finalized_after_restart(database, tmp_path):
+    _, task_id = _insert_task(
+        database, username="alice", execution_date="2026-09-21"
+    )
+    worker = FakeWorker(tmp_path / "runtime")
+    tick = Scheduler(database, worker).run_once(
+        datetime(2026, 9, 22, 6, 0, tzinfo=BEIJING)
+    )
+    assert tick.missed_task_ids == (task_id,)
+    assert worker.started_task_ids == []
+    assert database.execute(
+        "SELECT status FROM booking_tasks WHERE id=?", (task_id,)
+    ).fetchone()[0] == "error"

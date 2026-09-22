@@ -134,12 +134,27 @@ class Scheduler:
         claimed: list[tuple[BookingTask, object]] = []
         with transaction(self._connection, immediate=True):
             rows = self._connection.execute(
-                "SELECT * FROM booking_tasks WHERE execution_date = ? "
-                "AND status = 'scheduled' ORDER BY id",
+                "SELECT t.*, u.status AS owner_status, "
+                "c.last_status AS credential_status "
+                "FROM booking_tasks t JOIN users u ON u.id=t.user_id "
+                "LEFT JOIN user_credentials c ON c.user_id=t.user_id "
+                "WHERE t.execution_date = ? AND t.status = 'scheduled' ORDER BY t.id",
                 (now.date().isoformat(),),
             ).fetchall()
             for row in rows:
                 task = TaskService._record(row)
+                if row["owner_status"] != "active" or row["credential_status"] != "valid":
+                    detail = "任务所有者或 Token 状态已失效，未启动预约。"
+                    self._connection.execute(
+                        "UPDATE booking_tasks SET status='error', updated_at=? WHERE id=?",
+                        (now.isoformat(), task.id),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO task_runs (task_id,runtime_path,log_path,started_at,finished_at,final_status,detail) "
+                        "VALUES (?,'','',?,?,'error',?)",
+                        (task.id, now.isoformat(), now.isoformat(), detail),
+                    )
+                    continue
                 changed = self._connection.execute(
                     "UPDATE booking_tasks SET status = 'running', claimed_at = ?, "
                     "updated_at = ? WHERE id = ? AND status = 'scheduled'",
@@ -211,11 +226,18 @@ class Scheduler:
         missed: list[int] = []
         detail = "预约启动窗口已于 07:29:57 结束，任务未启动。"
         with transaction(self._connection, immediate=True):
-            rows = self._connection.execute(
-                "SELECT id FROM booking_tasks WHERE execution_date = ? "
-                "AND status = 'scheduled' ORDER BY id",
-                (now.date().isoformat(),),
-            ).fetchall()
+            if now.time() >= LAST_START_TIME:
+                rows = self._connection.execute(
+                    "SELECT id FROM booking_tasks WHERE status='scheduled' "
+                    "AND execution_date <= ? ORDER BY execution_date,id",
+                    (now.date().isoformat(),),
+                ).fetchall()
+            else:
+                rows = self._connection.execute(
+                    "SELECT id FROM booking_tasks WHERE status='scheduled' "
+                    "AND execution_date < ? ORDER BY execution_date,id",
+                    (now.date().isoformat(),),
+                ).fetchall()
             for row in rows:
                 task_id = row["id"]
                 changed = self._connection.execute(
@@ -239,10 +261,9 @@ class Scheduler:
         finished, stopped = self._observe_owned(local_now)
         started: list[int] = []
         missed: list[int] = []
+        missed = self._mark_missed(local_now)
         if START_TIME <= local_now.time() < LAST_START_TIME:
             started = self._start_claimed(self._claim_due(local_now), local_now)
-        elif local_now.time() >= LAST_START_TIME:
-            missed = self._mark_missed(local_now)
         return SchedulerTick(
             started_task_ids=tuple(started),
             finished_task_ids=tuple(finished),
@@ -280,6 +301,11 @@ class Scheduler:
                 WorkerResult(status, detail, row["exit_code"]),
                 local_now,
             )
+            cleanup_recovered = getattr(
+                self._worker, "cleanup_recovered_snapshot", None
+            )
+            if cleanup_recovered is not None and row["runtime_path"]:
+                cleanup_recovered(Path(row["runtime_path"]))
             reconciled.append(task.id)
         return ReconciliationResult(tuple(reconciled))
 
@@ -313,4 +339,3 @@ class Scheduler:
                     shutdown_now,
                 )
                 self._owned.pop(task_id, None)
-

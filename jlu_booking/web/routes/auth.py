@@ -70,7 +70,7 @@ async def register(
 ):
     require_csrf(request, csrf_token)
     try:
-        request.app.state.services.accounts.register_pending(
+        await request.app.state.services.accounts.register_pending_async(
             username,
             password,
             source_ip=client_ip(request),
@@ -113,7 +113,7 @@ async def login(
 ):
     require_csrf(request, csrf_token)
     try:
-        user = request.app.state.services.accounts.authenticate(
+        user = await request.app.state.services.accounts.authenticate_async(
             username,
             password,
             source_ip=client_ip(request),
@@ -180,7 +180,7 @@ async def change_password(
         return RedirectResponse("/login", 303)
     require_csrf(request, csrf_token, session)
     try:
-        request.app.state.services.accounts.change_password(
+        await request.app.state.services.accounts.change_password_async(
             user.id,
             current_password,
             new_password,

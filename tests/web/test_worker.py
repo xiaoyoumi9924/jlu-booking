@@ -225,3 +225,15 @@ def test_prepare_rejects_symlinked_user_directory(tmp_path, task):
     adapter = WorkerAdapter(FakeCredentials(), SimpleNamespace(runtime_root=root))
     with pytest.raises(ValueError, match="符号链接"):
         adapter.prepare(task)
+
+
+def test_recovery_cleanup_removes_private_snapshot_but_keeps_state(
+    worker_adapter, task
+):
+    launch = worker_adapter.prepare(task)
+    state = launch.runtime_dir / "state" / "last_run.json"
+    state.parent.mkdir(parents=True)
+    state.write_text('{"status":"success"}', encoding="utf-8")
+    worker_adapter.cleanup_recovered_snapshot(launch.runtime_dir)
+    assert not launch.config_path.exists()
+    assert state.exists()

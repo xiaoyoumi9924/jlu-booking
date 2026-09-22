@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from anyio import to_thread
+
 from ..api import get_companion_user
 from ..token_store import normalize_token
 from ..token_validation import TokenValidationResult, validate_token_online
@@ -119,7 +121,9 @@ class CredentialService:
     def _validate_companion_default(student_number: str, token: str) -> dict:
         return get_companion_user(student_number=student_number, token=token)
 
-    def _validate_token(self, user_id: int, token: str, now: datetime) -> str:
+    def _begin_token_validation(
+        self, user_id: int, token: str, now: datetime
+    ) -> tuple[str, str]:
         require_aware(now)
         normalized = normalize_token(token)
         bucket = f"token:{int(user_id)}"
@@ -129,16 +133,14 @@ class CredentialService:
             window=TOKEN_FAILURE_WINDOW,
             now=now,
         )
-        try:
-            result = self._token_validator(normalized)
-        except Exception as exc:
-            self._throttles.consume(
-                bucket,
-                limit=5,
-                window=TOKEN_FAILURE_WINDOW,
-                now=now,
-            )
-            raise TokenValidationFailed("unavailable") from exc
+        return normalized, bucket
+
+    def _finish_token_validation(
+        self,
+        bucket: str,
+        result: TokenValidationResult,
+        now: datetime,
+    ) -> None:
         if result.status != "valid":
             self._throttles.consume(
                 bucket,
@@ -148,6 +150,34 @@ class CredentialService:
             )
             raise TokenValidationFailed(result.status)
         self._throttles.clear(bucket)
+
+    def _validation_unavailable(self, bucket: str, now: datetime, exc: Exception):
+        self._throttles.consume(
+            bucket,
+            limit=5,
+            window=TOKEN_FAILURE_WINDOW,
+            now=now,
+        )
+        raise TokenValidationFailed("unavailable") from exc
+
+    def _validate_token(self, user_id: int, token: str, now: datetime) -> str:
+        normalized, bucket = self._begin_token_validation(user_id, token, now)
+        try:
+            result = self._token_validator(normalized)
+        except Exception as exc:
+            self._validation_unavailable(bucket, now, exc)
+        self._finish_token_validation(bucket, result, now)
+        return normalized
+
+    async def _validate_token_async(
+        self, user_id: int, token: str, now: datetime
+    ) -> str:
+        normalized, bucket = self._begin_token_validation(user_id, token, now)
+        try:
+            result = await to_thread.run_sync(self._token_validator, normalized)
+        except Exception as exc:
+            self._validation_unavailable(bucket, now, exc)
+        self._finish_token_validation(bucket, result, now)
         return normalized
 
     def activate_user(
@@ -158,6 +188,21 @@ class CredentialService:
         now: datetime,
     ) -> CredentialSummary:
         normalized = self._validate_token(user_id, token, now)
+        return self._activate_validated(user_id, normalized, now)
+
+    async def activate_user_async(
+        self,
+        user_id: int,
+        token: str,
+        *,
+        now: datetime,
+    ) -> CredentialSummary:
+        normalized = await self._validate_token_async(user_id, token, now)
+        return self._activate_validated(user_id, normalized, now)
+
+    def _activate_validated(
+        self, user_id: int, normalized: str, now: datetime
+    ) -> CredentialSummary:
         ciphertext = self._cipher.encrypt(normalized)
         blind_index = self._cipher.token_index(normalized)
         try:
@@ -223,6 +268,27 @@ class CredentialService:
         if existing is None:
             raise CredentialNotFound("当前账号尚未绑定 Token。")
         normalized = self._validate_token(user_id, token, now)
+        return self._replace_validated(user_id, normalized, now)
+
+    async def replace_token_async(
+        self,
+        user_id: int,
+        token: str,
+        *,
+        now: datetime,
+    ) -> CredentialSummary:
+        existing = self._connection.execute(
+            "SELECT 1 FROM user_credentials WHERE user_id = ?",
+            (int(user_id),),
+        ).fetchone()
+        if existing is None:
+            raise CredentialNotFound("当前账号尚未绑定 Token。")
+        normalized = await self._validate_token_async(user_id, token, now)
+        return self._replace_validated(user_id, normalized, now)
+
+    def _replace_validated(
+        self, user_id: int, normalized: str, now: datetime
+    ) -> CredentialSummary:
         ciphertext = self._cipher.encrypt(normalized)
         blind_index = self._cipher.token_index(normalized)
         try:
@@ -266,19 +332,59 @@ class CredentialService:
         *,
         now: datetime,
     ) -> CompanionSummary:
+        normalized_number, token = self._companion_inputs(
+            user_id, student_number, now
+        )
+        try:
+            result = self._companion_validator(normalized_number, token)
+            name = self._companion_name(result)
+        except Exception as exc:
+            raise CompanionValidationFailed("同行人验证失败，请检查后重试。") from exc
+        return self._save_validated_companion(user_id, normalized_number, name, now)
+
+    async def save_companion_async(
+        self,
+        user_id: int,
+        student_number: str,
+        *,
+        now: datetime,
+    ) -> CompanionSummary:
+        normalized_number, token = self._companion_inputs(
+            user_id, student_number, now
+        )
+        try:
+            result = await to_thread.run_sync(
+                self._companion_validator, normalized_number, token
+            )
+            name = self._companion_name(result)
+        except Exception as exc:
+            raise CompanionValidationFailed("同行人验证失败，请检查后重试。") from exc
+        return self._save_validated_companion(user_id, normalized_number, name, now)
+
+    def _companion_inputs(
+        self, user_id: int, student_number: str, now: datetime
+    ) -> tuple[str, str]:
         require_aware(now)
         normalized_number = str(student_number).strip()
         if not normalized_number:
             raise CompanionValidationFailed("同行人学工号不能为空。")
-        token = self.decrypt_token(user_id)
-        try:
-            result = self._companion_validator(normalized_number, token)
-            internal_id = result.get("id") if isinstance(result, dict) else None
-            name = str(result.get("name", "")).strip() if isinstance(result, dict) else ""
-            if internal_id is None or not name:
-                raise ValueError("missing companion fields")
-        except Exception as exc:
-            raise CompanionValidationFailed("同行人验证失败，请检查后重试。") from exc
+        return normalized_number, self.decrypt_token(user_id)
+
+    @staticmethod
+    def _companion_name(result: dict) -> str:
+        internal_id = result.get("id") if isinstance(result, dict) else None
+        name = str(result.get("name", "")).strip() if isinstance(result, dict) else ""
+        if internal_id is None or not name:
+            raise ValueError("missing companion fields")
+        return name
+
+    def _save_validated_companion(
+        self,
+        user_id: int,
+        normalized_number: str,
+        name: str,
+        now: datetime,
+    ) -> CompanionSummary:
         number_ciphertext = self._cipher.encrypt(normalized_number)
         name_ciphertext = self._cipher.encrypt(name)
         with transaction(self._connection, immediate=True):

@@ -6,14 +6,16 @@
   <section class="card">
     <h2>任务状态</h2>
     <p><span class="badge status-{{ task.status }}" data-task-status>{% if task.status == 'success' %}预约成功{% else %}{{ task.status }}{% endif %}</span></p>
+    <p>运行阶段：<span data-task-phase>尚未开始</span></p>
     <p>执行日：{{ task.execution_date }} · 目标日：{{ target_date }}</p>
     <p>{{ task.venue }} · {{ task.sport }} · 首选 {{ task.preferred_court_number }} 号场</p>
     <p>模式：{% if task.real_booking_enabled %}<strong class="warning">真实预约</strong>{% else %}仅扫描{% endif %}</p>
     <div class="actions">
       {% if task.status == 'scheduled' %}<a class="button secondary" href="/tasks/{{ task.id }}/edit">编辑</a>
       <form method="post" action="/tasks/{{ task.id }}/cancel"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">取消任务</button></form>{% endif %}
-      {% if task.status == 'running' and not task.stop_requested_at %}<form method="post" action="/tasks/{{ task.id }}/stop"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger" type="submit">请求停止</button></form>{% endif %}
+      {% if task.status == 'running' and not task.stop_requested_at %}<form method="post" action="/tasks/{{ task.id }}/stop" data-confirm-stop><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger" type="submit">请求停止</button></form>{% endif %}
     </div>
+    {% if task.status == 'running' %}<p class="warning">停止任务不代表预约一定未提交；若请求已经发出，请到学校系统核对最终结果。</p>{% endif %}
   </section>
   <section class="card">
     <h2>运行日志</h2>

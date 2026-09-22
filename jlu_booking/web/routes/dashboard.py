@@ -61,4 +61,3 @@ async def dashboard(request: Request):
             "companion_text": companion_text,
         },
     )
-

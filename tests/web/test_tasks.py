@@ -243,6 +243,28 @@ def test_request_stop_requires_running_and_is_idempotent(
     assert again.stop_requested_at == clock
 
 
+def test_request_stop_rolls_back_when_audit_callback_fails(
+    database, task_service, clock
+):
+    user_id, companion_id = _add_user(database, "alice", clock)
+    task = task_service.create(user_id, _draft(companion_id), now=clock)
+    database.execute(
+        "UPDATE booking_tasks SET status = 'running' WHERE id = ?", (task.id,)
+    )
+
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        task_service.request_stop(
+            user_id,
+            task.id,
+            now=clock,
+            on_success=lambda: (_ for _ in ()).throw(
+                RuntimeError("audit unavailable")
+            ),
+        )
+
+    assert task_service.get_for_user(user_id, task.id).stop_requested_at is None
+
+
 def test_tenth_execution_slot_is_transactional(tmp_path, clock):
     path = tmp_path / "capacity.sqlite3"
     setup = connect_database(path)
@@ -282,4 +304,3 @@ def test_tenth_execution_slot_is_transactional(tmp_path, clock):
         "SELECT COUNT(*) FROM booking_tasks "
         "WHERE execution_date = '2026-09-22' AND status != 'cancelled'"
     ).fetchone()[0] == 10
-

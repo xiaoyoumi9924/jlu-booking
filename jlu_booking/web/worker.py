@@ -273,3 +273,22 @@ class WorkerAdapter:
     def cleanup_snapshot(launch: WorkerLaunch) -> None:
         launch.config_path.unlink(missing_ok=True)
 
+    def cleanup_recovered_snapshot(self, runtime_dir: Path | str) -> None:
+        root = self._runtime_root
+        candidate = Path(runtime_dir)
+        if root.is_symlink() or candidate.is_symlink():
+            raise ValueError("恢复目录不能是符号链接。")
+        resolved_root = root.resolve(strict=False)
+        try:
+            relative = candidate.resolve(strict=False).relative_to(resolved_root)
+        except ValueError as exc:
+            raise ValueError("恢复目录超出 Web 运行根目录。") from exc
+        current = root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError("恢复目录不能包含符号链接。")
+        snapshot = candidate / "auto_booking.json"
+        if snapshot.is_symlink():
+            raise ValueError("配置快照不能是符号链接。")
+        snapshot.unlink(missing_ok=True)

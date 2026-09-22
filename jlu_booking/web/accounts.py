@@ -7,6 +7,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from anyio import to_thread
+
 from .db import transaction
 from .security import PasswordService, ThrottleService, require_aware
 from .sessions import SessionService
@@ -144,6 +146,27 @@ class AccountService:
         )
         normalized = normalize_username(username)
         password_hash = self._passwords.hash(password)
+        return self._insert_pending(normalized, password_hash, now)
+
+    async def register_pending_async(
+        self,
+        username: str,
+        password: str,
+        *,
+        source_ip: str,
+        now: datetime,
+    ) -> UserRecord:
+        require_aware(now)
+        self._throttles.consume(
+            f"register:{source_ip}", limit=5, window=REGISTRATION_WINDOW, now=now
+        )
+        normalized = normalize_username(username)
+        password_hash = await to_thread.run_sync(self._passwords.hash, str(password))
+        return self._insert_pending(normalized, password_hash, now)
+
+    def _insert_pending(
+        self, normalized: str, password_hash: str, now: datetime
+    ) -> UserRecord:
         expires_at = now + PENDING_LIFETIME
         try:
             with transaction(self._connection, immediate=True):
@@ -247,24 +270,86 @@ class AccountService:
             raise UsernameUnavailable("用户名已被使用。") from exc
         return self.get(cursor.lastrowid)
 
+    async def authenticate_async(
+        self,
+        username: str,
+        password: str,
+        *,
+        source_ip: str,
+        now: datetime,
+    ) -> UserRecord:
+        require_aware(now)
+        normalized_for_key = str(username).strip().lower()
+        throttle_key = f"login:{normalized_for_key}:{source_ip}"
+        self._throttles.require_available(
+            throttle_key, limit=10, window=LOGIN_WINDOW, now=now
+        )
+        try:
+            normalized = normalize_username(username)
+        except InvalidUsername:
+            normalized = ""
+        row = self._connection.execute(
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+            (normalized,),
+        ).fetchone()
+        password_hash = row["password_hash"] if row is not None else self._dummy_hash
+        password_ok = await to_thread.run_sync(
+            self._passwords.verify, password_hash, str(password)
+        )
+        status_ok = row is not None and row["status"] not in {"disabled", "deleted"}
+        if not password_ok or not status_ok:
+            self._throttles.consume(
+                throttle_key, limit=10, window=LOGIN_WINDOW, now=now
+            )
+            raise AuthenticationFailed("用户名或密码错误。")
+        self._throttles.clear(throttle_key)
+        return self._record(row)
+
     def reset_password(
         self,
         user_id: int,
         temporary_password: str,
         *,
         now: datetime,
+        on_success=None,
     ) -> None:
         require_aware(now)
         password_hash = self._passwords.hash(temporary_password)
         with transaction(self._connection, immediate=True):
             cursor = self._connection.execute(
                 "UPDATE users SET password_hash = ?, must_change_password = 1 "
-                "WHERE id = ? AND status != 'deleted'",
+                "WHERE id = ? AND role = 'user' AND status != 'deleted'",
                 (password_hash, int(user_id)),
             )
             if cursor.rowcount != 1:
                 raise UserNotFound("用户不存在。")
             self._sessions.invalidate_user_sessions(int(user_id))
+            if on_success is not None:
+                on_success()
+
+    async def reset_password_async(
+        self,
+        user_id: int,
+        temporary_password: str,
+        *,
+        now: datetime,
+        on_success=None,
+    ) -> None:
+        require_aware(now)
+        password_hash = await to_thread.run_sync(
+            self._passwords.hash, str(temporary_password)
+        )
+        with transaction(self._connection, immediate=True):
+            cursor = self._connection.execute(
+                "UPDATE users SET password_hash = ?, must_change_password = 1 "
+                "WHERE id = ? AND role = 'user' AND status != 'deleted'",
+                (password_hash, int(user_id)),
+            )
+            if cursor.rowcount != 1:
+                raise UserNotFound("用户不存在。")
+            self._sessions.invalidate_user_sessions(int(user_id))
+            if on_success is not None:
+                on_success()
 
     def change_password(
         self,
@@ -292,7 +377,33 @@ class AccountService:
             )
             self._sessions.invalidate_user_sessions(int(user_id))
 
-    def disable(self, user_id: int, *, now: datetime) -> UserRecord:
+    async def change_password_async(
+        self,
+        user_id: int,
+        current_password: str,
+        new_password: str,
+        *,
+        now: datetime,
+    ) -> None:
+        require_aware(now)
+        row = self._connection.execute(
+            "SELECT password_hash FROM users WHERE id = ? AND status != 'deleted'",
+            (int(user_id),),
+        ).fetchone()
+        valid = row is not None and await to_thread.run_sync(
+            self._passwords.verify, row["password_hash"], str(current_password)
+        )
+        if not valid:
+            raise AuthenticationFailed("当前密码错误。")
+        new_hash = await to_thread.run_sync(self._passwords.hash, str(new_password))
+        with transaction(self._connection, immediate=True):
+            self._connection.execute(
+                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+                (new_hash, int(user_id)),
+            )
+            self._sessions.invalidate_user_sessions(int(user_id))
+
+    def disable(self, user_id: int, *, now: datetime, on_success=None) -> UserRecord:
         require_aware(now)
         with transaction(self._connection, immediate=True):
             cursor = self._connection.execute(
@@ -302,10 +413,22 @@ class AccountService:
             )
             if cursor.rowcount != 1:
                 raise UserNotFound("可停用用户不存在。")
+            self._connection.execute(
+                "UPDATE booking_tasks SET status = 'cancelled', updated_at = ?, "
+                "cancelled_at = ? WHERE user_id = ? AND status = 'scheduled'",
+                (now.isoformat(), now.isoformat(), int(user_id)),
+            )
+            self._connection.execute(
+                "UPDATE booking_tasks SET stop_requested_at = COALESCE(stop_requested_at, ?), "
+                "updated_at = ? WHERE user_id = ? AND status = 'running'",
+                (now.isoformat(), now.isoformat(), int(user_id)),
+            )
             self._sessions.invalidate_user_sessions(int(user_id))
+            if on_success is not None:
+                on_success()
         return self.get(user_id)
 
-    def enable(self, user_id: int, *, now: datetime) -> UserRecord:
+    def enable(self, user_id: int, *, now: datetime, on_success=None) -> UserRecord:
         require_aware(now)
         with transaction(self._connection, immediate=True):
             row = self._connection.execute(
@@ -325,4 +448,6 @@ class AccountService:
                 "activated_at = COALESCE(activated_at, ?) WHERE id = ?",
                 (now.isoformat(), int(user_id)),
             )
+            if on_success is not None:
+                on_success()
         return self.get(user_id)

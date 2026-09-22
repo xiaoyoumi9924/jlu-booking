@@ -235,14 +235,22 @@ async def stop_task(request: Request, task_id: int, csrf_token: str = Form("")):
     return RedirectResponse(f"/tasks/{task_id}", 303)
 
 
-def _private_log_path(request: Request, task_id: int) -> Path | None:
+def _private_run_path(
+    request: Request, task_id: int, column: str
+) -> Path | None:
+    if column not in {"log_path", "runtime_path"}:
+        raise ValueError("unsupported task-run path")
     row = request.app.state.services.connection.execute(
-        "SELECT log_path FROM task_runs WHERE task_id = ?", (task_id,)
+        f"SELECT {column} FROM task_runs WHERE task_id = ?", (task_id,)
     ).fetchone()
-    if row is None or not row["log_path"]:
+    if row is None or not row[column]:
         return None
+    candidate = Path(row[column])
+    return _safe_runtime_path(request, candidate)
+
+
+def _safe_runtime_path(request: Request, candidate: Path) -> Path | None:
     root = Path(request.app.state.settings.runtime_root)
-    candidate = Path(row["log_path"])
     if root.is_symlink() or candidate.is_symlink():
         return None
     try:
@@ -261,41 +269,51 @@ def _private_log_path(request: Request, task_id: int) -> Path | None:
     return candidate
 
 
+def read_private_log_lines(
+    request: Request, task_id: int, user_id: int
+) -> list[str]:
+    log_path = _private_run_path(request, task_id, "log_path")
+    if log_path is None or not log_path.is_file():
+        return []
+    try:
+        lines = log_path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()[-500:]
+        secrets = [
+            request.app.state.services.credentials.decrypt_token(user_id),
+            request.app.state.services.credentials.decrypt_companion(
+                user_id
+            ).student_number,
+        ]
+    except Exception:
+        return []
+    return [_redact_line(line, secrets) for line in lines]
+
+
+def read_private_phase(request: Request, task_id: int) -> str | None:
+    runtime_path = _private_run_path(request, task_id, "runtime_path")
+    if runtime_path is None:
+        return None
+    state_path = _safe_runtime_path(
+        request, runtime_path / "state" / "last_run.json"
+    )
+    if state_path is None:
+        return None
+    try:
+        state = load_run_status(state_path)
+    except (OSError, RunStatusError):
+        return None
+    return str(state.get("phase")) if state and state.get("phase") else None
+
+
 @router.get("/{task_id}/status")
 async def task_status(request: Request, task_id: int):
     _session, user, redirect = require_active_user(request)
     if redirect:
         return redirect
     task = _task_or_404(request, user.id, task_id)
-    phase = None
-    run = request.app.state.services.connection.execute(
-        "SELECT runtime_path FROM task_runs WHERE task_id = ?", (task.id,)
-    ).fetchone()
-    if run and run["runtime_path"]:
-        try:
-            state_path = Path(run["runtime_path"]) / "state" / "last_run.json"
-            state = load_run_status(state_path)
-            phase = state.get("phase") if state else None
-        except RunStatusError:
-            phase = None
-    lines = []
-    log_path = _private_log_path(request, task.id)
-    if log_path and log_path.is_file():
-        try:
-            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-500:]
-        except OSError:
-            lines = []
-    try:
-        secrets = [
-            request.app.state.services.credentials.decrypt_token(user.id),
-            request.app.state.services.credentials.decrypt_companion(user.id).student_number,
-        ]
-        lines = [
-            _redact_line(line, secrets)
-            for line in lines
-        ]
-    except Exception:
-        lines = []
+    phase = read_private_phase(request, task.id)
+    lines = read_private_log_lines(request, task.id, user.id)
     return JSONResponse(
         {
             "status": task.status,
@@ -312,4 +330,3 @@ def _redact_line(line: str, secrets: list[str]) -> str:
         if secret:
             value = value.replace(secret, "[REDACTED]")
     return value
-

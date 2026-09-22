@@ -223,4 +223,3 @@ def test_local_http_shell_and_static_assets(harness):
         assert client.get("/register").status_code == 200
         assert client.get("/static/app.css").status_code == 200
         assert client.get("/static/app.js").status_code == 200
-

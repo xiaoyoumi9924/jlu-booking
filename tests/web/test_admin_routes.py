@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -213,6 +214,12 @@ def test_admin_disable_enable_reset_and_pending_delete_are_audited(web):
     assert services.accounts.find_by_username("pending") is None
     actions = {row[0] for row in services.connection.execute("SELECT action FROM audit_events")}
     assert {"user_disabled", "user_enabled", "password_reset", "pending_deleted"} <= actions
+    deleted = services.connection.execute(
+        "SELECT target_user_id, metadata_json FROM audit_events "
+        "WHERE action='pending_deleted'"
+    ).fetchone()
+    assert deleted["target_user_id"] is None
+    assert json.loads(deleted["metadata_json"])["target_username"] == "pending"
 
 
 def test_admin_requests_running_task_stop(web):
@@ -244,3 +251,51 @@ def test_audit_service_rejects_sensitive_metadata(web):
             {"token": "secret"}, now=NOW,
         )
 
+
+def test_password_reset_endpoint_refuses_admin_target(web):
+    client, services = web
+    owner = _admin_login(client, services)
+    second = services.accounts.create_admin("second", "second password value", now=NOW)
+    before = services.connection.execute(
+        "SELECT password_hash FROM users WHERE id=?", (second.id,)
+    ).fetchone()[0]
+    page = client.get("/admin/reauth")
+    response = client.post(
+        f"/admin/users/{second.id}/reset-password",
+        data={"csrf_token": _csrf(page)},
+    )
+    assert response.status_code == 404
+    after = services.connection.execute(
+        "SELECT password_hash FROM users WHERE id=?", (second.id,)
+    ).fetchone()[0]
+    assert after == before
+    assert owner.id != second.id
+
+
+def test_admin_task_detail_shows_sanitized_result_and_log(web):
+    client, services = web
+    user = _create_active(services)
+    companion = services.credentials.decrypt_companion(user.id)
+    task = services.tasks.create(user.id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", companion.id, 3,
+        [["15:30", "17:30"]], False,
+    ), now=NOW)
+    runtime = Path(services.connection.execute("PRAGMA database_list").fetchone()[2]).parent / "runtime" / f"user-{user.id}" / f"task-{task.id}"
+    runtime.mkdir(parents=True)
+    log = runtime / "worker.log"
+    log.write_text("private-token 20260001 safe-line", encoding="utf-8")
+    services.connection.execute(
+        "INSERT INTO task_runs (task_id,runtime_path,log_path,started_at,finished_at,final_status,detail) "
+        "VALUES (?,?,?,?,?,'submission_unknown','manual check')",
+        (task.id, str(runtime), str(log), NOW.isoformat(), NOW.isoformat()),
+    )
+    services.connection.execute(
+        "UPDATE booking_tasks SET status='submission_unknown' WHERE id=?", (task.id,)
+    )
+    _admin_login(client, services)
+    response = client.get(f"/admin/tasks/{task.id}")
+    assert response.status_code == 200
+    assert "manual check" in response.text
+    assert "safe-line" in response.text
+    assert "private-token" not in response.text
+    assert "20260001" not in response.text

@@ -306,6 +306,7 @@ class TaskService:
         task_id: int,
         *,
         now: datetime,
+        on_success=None,
     ) -> BookingTask:
         local_now = require_aware(now).astimezone(BEIJING)
         with transaction(self._connection, immediate=True):
@@ -323,5 +324,6 @@ class TaskService:
                     int(user_id),
                 ),
             )
+            if on_success is not None:
+                on_success()
         return self.get_for_user(user_id, task_id)
-

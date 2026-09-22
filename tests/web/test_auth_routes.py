@@ -133,6 +133,17 @@ def test_token_onboarding_activates_without_echoing_token(web):
     assert services.accounts.find_by_username("alice").status == "active"
 
 
+def test_token_onboarding_full_capacity_returns_conflict(web):
+    client, services = web
+    _register_and_login_pending(client)
+    services.credentials._user_limit = 0
+
+    response = _activate(client)
+
+    assert response.status_code == 409
+    assert services.accounts.find_by_username("alice").status == "pending_token"
+
+
 def test_companion_save_requires_csrf_and_never_echoes_number(web):
     client, _ = web
     _register_and_login_pending(client)
@@ -230,3 +241,20 @@ def test_anonymous_state_changes_reject_missing_csrf(web):
     )
     assert response.status_code == 403
 
+
+def test_login_rate_limit_returns_429_with_retry_after(web):
+    client, _ = web
+    _register(client)
+    page = client.get("/login")
+    token = _csrf(page)
+    for _ in range(10):
+        assert client.post(
+            "/login",
+            data={"username": "alice", "password": "wrong password value", "csrf_token": token},
+        ).status_code == 400
+    response = client.post(
+        "/login",
+        data={"username": "alice", "password": "wrong password value", "csrf_token": token},
+    )
+    assert response.status_code == 429
+    assert int(response.headers["retry-after"]) > 0

@@ -14,4 +14,3 @@ def require_active_user(request):
     if user.status == "pending_token":
         return None, None, RedirectResponse("/onboarding/token", 303)
     return session, user, None
-

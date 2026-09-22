@@ -223,6 +223,9 @@ def test_running_task_stop_sets_database_flag_only(web):
     )
     _login(client, "alice")
     detail = client.get(f"/tasks/{task.id}")
+    assert "停止任务不代表预约一定未提交" in detail.text
+    assert "data-confirm-stop" in detail.text
+    assert "data-task-phase" in detail.text
     response = client.post(
         f"/tasks/{task.id}/stop",
         data={"csrf_token": _csrf(detail)},

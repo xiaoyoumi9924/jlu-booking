@@ -340,6 +340,18 @@ def test_admin_creation_is_active_and_not_counted_as_booking_user(
     assert count == 0
 
 
+def test_disable_rolls_back_when_audit_callback_fails(
+    accounts, active_user, beijing_now
+):
+    def fail_audit():
+        raise RuntimeError("audit unavailable")
+
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        accounts.disable(active_user.id, now=beijing_now, on_success=fail_audit)
+
+    assert accounts.get(active_user.id).status == "active"
+
+
 def test_accounts_reject_naive_datetimes(accounts):
     with pytest.raises(ValueError, match="时区"):
         accounts.register_pending(

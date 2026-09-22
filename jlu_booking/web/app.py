@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .accounts import AccountService
+from .accounts import AccountService, ActiveUserLimitReached
 from .audit import AuditService, ReauthenticationService
 from .credentials import CredentialService
 from .db import connect_database, migrate_database
 from .routes import admin, auth, dashboard, profile, task_routes
-from .security import CredentialCipher, PasswordService, ThrottleService
+from .security import (
+    CredentialCipher,
+    PasswordService,
+    RateLimitExceeded,
+    ThrottleService,
+)
 from .sessions import SessionService
 from .settings import WebSettings
 from .tasks import TaskService
@@ -98,6 +105,24 @@ def create_app(
     app.state.services = selected
     app.state.templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
     app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
+
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(_request: Request, exc: RateLimitExceeded):
+        return PlainTextResponse(
+            str(exc),
+            status_code=429,
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        )
+
+    @app.exception_handler(ActiveUserLimitReached)
+    async def active_limit_handler(_request: Request, exc: ActiveUserLimitReached):
+        return PlainTextResponse(str(exc), status_code=409)
+
+    @app.exception_handler(sqlite3.OperationalError)
+    async def database_busy_handler(_request: Request, exc: sqlite3.OperationalError):
+        if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+            raise exc
+        return PlainTextResponse("数据库暂时繁忙，请稍后重试。", status_code=503)
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
