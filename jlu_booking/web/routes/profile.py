@@ -30,7 +30,7 @@ async def token_onboarding_page(request: Request):
     if redirect:
         return redirect
     if user.status == "active":
-        return RedirectResponse("/profile", 303)
+        return RedirectResponse("/admin" if user.role == "admin" else "/", 303)
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="token_onboarding.html",
@@ -59,7 +59,7 @@ async def token_onboarding(
             context={"csrf_token": session.csrf_token, "error": str(exc), "user": user},
             status_code=400,
         )
-    return RedirectResponse("/profile", 303)
+    return RedirectResponse("/", 303)
 
 
 def _profile_context(request, session, user, error=None):

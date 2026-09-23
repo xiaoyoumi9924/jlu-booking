@@ -1,3 +1,3 @@
-{% extends "base.html" %}
+{% extends "admin/shell.html" %}
 {% block title %}审计记录 · JLU 体育馆预约{% endblock %}
 {% block content %}<div class="dashboard-head"><h1>审计记录</h1><a href="/admin">返回后台</a></div><div class="table-wrap card"><table><thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标用户</th><th>来源</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.admin_username }}</td><td>{{ event.action }}</td><td>{{ event.target_user_id or '-' }}</td><td>{{ event.source_ip }}</td></tr>{% endfor %}</tbody></table></div>{% endblock %}

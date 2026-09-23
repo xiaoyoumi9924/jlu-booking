@@ -21,6 +21,8 @@ async def dashboard(request: Request):
         return RedirectResponse("/change-password", 303)
     if user.status == "pending_token":
         return RedirectResponse("/onboarding/token", 303)
+    if user.role == "admin":
+        return RedirectResponse("/admin", 303)
     services = request.app.state.services
     now = now_beijing()
     execution_date = services.tasks.next_execution_date(now)

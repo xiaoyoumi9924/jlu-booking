@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "admin/shell.html" %}
 {% block title %}管理员重新验证 · JLU 体育馆预约{% endblock %}
 {% block page_class %}auth-page{% endblock %}
 {% block content %}<section class="card auth-card"><h1>重新验证管理员密码</h1><p class="muted">验证后五分钟内可临时查看完整 Token。</p>{% if error %}<p class="error">{{ error }}</p>{% endif %}<form method="post" action="/admin/reauth"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>管理员密码<input type="password" name="password" autocomplete="current-password" required></label><button>验证</button></form></section>{% endblock %}

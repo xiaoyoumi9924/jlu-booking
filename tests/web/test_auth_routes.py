@@ -124,7 +124,7 @@ def test_token_onboarding_activates_without_echoing_token(web):
     _register_and_login_pending(client)
     response = _activate(client)
     assert response.status_code == 303
-    assert response.headers["location"] == "/profile"
+    assert response.headers["location"] == "/"
     assert "token-alice" not in response.text
     profile = client.get("/profile")
     assert profile.status_code == 200

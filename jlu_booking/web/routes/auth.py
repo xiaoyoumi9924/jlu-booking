@@ -40,7 +40,7 @@ def _auth_destination(user) -> str:
         return "/change-password"
     if user.status == "pending_token":
         return "/onboarding/token"
-    return "/profile"
+    return "/admin" if user.role == "admin" else "/"
 
 
 @router.get("/auth-home", include_in_schema=False)
