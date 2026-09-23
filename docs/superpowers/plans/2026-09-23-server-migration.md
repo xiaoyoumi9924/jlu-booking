@@ -479,6 +479,8 @@ sqlite3 /var/lib/jlu-booking/web.sqlite3 "SELECT 'users',count(*) FROM users UNI
 
 Run the same aggregate query against the source staging backup and compare all nine counts. Do not select usernames, tokens, companion data, password hashes, or encrypted values.
 
+As the destination `jlu-booking` service user, load the web environment without echoing it, open SQLite in read-only mode, and use `WebSettings.from_env` plus `CredentialCipher` to decrypt each stored token and companion field. Compare each decrypted token's blind index with its stored index using `hmac.compare_digest`. Print counts and pass/fail only; discard plaintext immediately, make no database writes, and call no JLU endpoint. Stop if any ciphertext cannot be decrypted.
+
 - [ ] **Step 5: Validate shortcut behavior without mutation**
 
 ```bash
@@ -496,8 +498,7 @@ Create a temporary HTTP-only `gym` virtual host without copying the source Certb
 ```bash
 cat > /etc/nginx/sites-available/jlu-gym-frontend <<'EOF'
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
+    listen 127.0.0.1:8080 default_server;
     server_name gym.meiyh9924.xyz;
     root /var/www/jlu-gym-frontend/dist;
     index index.html;
@@ -518,8 +519,7 @@ Create the booking reverse proxy:
 ```bash
 cat > /etc/nginx/sites-available/jlu-booking-web <<'EOF'
 server {
-    listen 80;
-    listen [::]:80;
+    listen 127.0.0.1:8080;
     server_name booking.meiyh9924.xyz;
     client_max_body_size 1m;
     location / {
@@ -540,7 +540,7 @@ ln -sfn /etc/nginx/sites-available/jlu-gym-frontend /etc/nginx/sites-enabled/jlu
 ln -sfn /etc/nginx/sites-available/jlu-booking-web /etc/nginx/sites-enabled/jlu-booking-web
 nginx -t
 systemctl enable --now nginx
-curl --resolve gym.meiyh9924.xyz:80:127.0.0.1 -I http://gym.meiyh9924.xyz/
+curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Host: gym.meiyh9924.xyz' http://127.0.0.1:8080/
 ```
 
 Start only `jlu-booking-web.service`, confirm it listens on `127.0.0.1:8000`, then run the booking Host-header check:
@@ -548,7 +548,7 @@ Start only `jlu-booking-web.service`, confirm it listens on `127.0.0.1:8000`, th
 ```bash
 systemctl start jlu-booking-web.service
 ss -lntp | grep '127.0.0.1:8000'
-curl --resolve booking.meiyh9924.xyz:80:127.0.0.1 -I http://booking.meiyh9924.xyz/login
+curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Host: booking.meiyh9924.xyz' http://127.0.0.1:8080/login
 ```
 
 Expected: the static site and login route respond locally, port 8000 is not bound to a public address, and the booking scheduler remains disabled.
@@ -671,8 +671,8 @@ Record the final checksum, final sync timestamp, source-inactive proof, and dest
 ```bash
 systemctl enable --now jlu-booking-web.service
 systemctl status jlu-booking-web.service --no-pager -l
-curl --resolve booking.meiyh9924.xyz:80:127.0.0.1 -I http://booking.meiyh9924.xyz/login
-curl --resolve gym.meiyh9924.xyz:80:127.0.0.1 -I http://gym.meiyh9924.xyz/
+curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Host: booking.meiyh9924.xyz' http://127.0.0.1:8080/login
+curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Host: gym.meiyh9924.xyz' http://127.0.0.1:8080/
 ```
 
 Expected: Web and static-site checks succeed before any scheduler is enabled.
@@ -716,7 +716,7 @@ Expected: no restart loop, no decryption/database error, no scheduler duplicate-
 
 If ICP remains incomplete, keep both public DNS records unchanged and use SSH-tunnel/local checks only. Record `DNS deferred pending ICP`.
 
-If ICP is approved and the new host is authorized for the domain, change the `gym` and `booking` A records from the source IP to `39.105.84.29`, then verify with multiple resolvers:
+If ICP is approved and the new host is authorized for the domain, first change both destination Nginx virtual hosts from `127.0.0.1:8080` to public port 80 listeners and validate with `nginx -t` before reloading. Open the destination's port 80 in the Alibaba Cloud firewall/security group. During this HTTP bootstrap, deny state-changing methods on the public booking host; do not accept logins or credential submissions until HTTPS is working. From an external client, use `curl --resolve` with each domain and the destination IP to prove both the static site and a **GET** of `/login` return HTTP 200. Keep DNS unchanged if either external check fails. Only then change the `gym` and `booking` A records from the source IP to `39.105.84.29`, and verify with multiple resolvers:
 
 ```bash
 dig +short gym.meiyh9924.xyz A @223.5.5.5
@@ -725,7 +725,7 @@ dig +short gym.meiyh9924.xyz A @1.1.1.1
 dig +short booking.meiyh9924.xyz A @1.1.1.1
 ```
 
-Expected after cutover: all answers converge on `39.105.84.29`. Do not issue certificates until the DNS and HTTP validation path both reach the destination.
+Expected after cutover: all answers converge on `39.105.84.29` and external GET checks reach the destination. Do not issue certificates until the DNS and HTTP validation path both reach the destination.
 
 - [ ] **Step 6: Configure TLS only when eligible**
 
@@ -787,7 +787,7 @@ ssh-copy-id -i ~/.ssh/jlu-booking-admin.pub root@39.105.84.29
 ssh -i ~/.ssh/jlu-booking-admin root@39.105.84.29 true
 ```
 
-Keep the original destination session open until the key-authenticated test succeeds. Then change the destination root password interactively with `passwd root`; the user enters the new private value directly and it is never recorded. Rotate the disclosed web administrator password through the application UI.
+Keep the original destination session open until the key-authenticated test succeeds. Then change the destination root password interactively with `passwd root`; the user enters the new private value directly and it is never recorded. Rotate the disclosed web administrator password through the application UI. If execution requires a temporary local password file, restrict it to mode `0600`, then move the password into the user's password manager and remove the temporary file. Protect the normal SSH private key with a passphrase when practical.
 
 The source ECS belongs to the user's friend. Do not change its root password unilaterally. Remove the temporary migration key as specified in Step 2, and ask the source owner to rotate their password through their own secure channel.
 
@@ -838,12 +838,11 @@ Expected: every unit reports `disabled`. Record this proof before the old ECS is
 
 ## Rollback procedure
 
-Use this procedure if destination health, data integrity, scheduling, or routing fails after Task 6:
+Use this procedure if destination health, data integrity, scheduling, or routing fails after Task 6. **Do not enable any source booking scheduler or web service while its state or administrator credential is stale.**
 
-1. Disable and stop all destination timers and `jlu-booking-scheduler.service`.
-2. Confirm with `pgrep` that no destination booking process remains.
-3. If DNS changed, restore both A records to the source and confirm resolver convergence.
-4. Restore source service state exactly: keep `jlu-booking.timer` disabled, enable timers 2–4, enable the source web service and web scheduler.
-5. Confirm no destination scheduler is active before enabling the source scheduler.
-6. Preserve the failed destination state and logs for diagnosis; do not overwrite the source with destination data.
-7. Record the rollback timestamp and reason in the migration record.
+1. Disable and stop all destination timers and `jlu-booking-scheduler.service`; stop the destination web service before capturing a consistent database snapshot. Confirm with `pgrep` that no destination booking process remains.
+2. Preserve separate backups of both hosts' current databases and per-user success state. Reconcile every destination-side change since the final migration copy, including booking results, success markers, users, credentials, sessions, and tasks. Restore a verified destination snapshot to the source only after checking compatibility, ownership, and SQLite integrity; otherwise reconcile the source state explicitly. If this cannot be proved complete, keep the source services disabled and repair the destination instead.
+3. Ensure the source web administrator password is no longer the disclosed pre-migration password and revoke its old sessions **before** allowing source web access. Restoring the verified current destination database can satisfy this only if it contains the rotated hash and revoked sessions; otherwise rotate and revoke on the source separately.
+4. Confirm all destination schedulers remain inactive. Restore source service state exactly: keep `jlu-booking.timer` disabled, enable timers 2–4, then enable the source web service and web scheduler only after Steps 2–3 pass.
+5. If DNS changed, restore both A records to the source only after its public listener and health checks pass; confirm resolver convergence.
+6. Preserve the failed destination state and logs for diagnosis. Record the rollback timestamp, reconciled state checkpoint, and reason in the migration record.
