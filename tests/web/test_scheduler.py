@@ -7,8 +7,9 @@ import pytest
 
 from jlu_booking.run_status import write_run_status
 from jlu_booking.web.db import connect_database, migrate_database
+from jlu_booking.web.daily_plans import DailyPlanService
 from jlu_booking.web.scheduler import Scheduler
-from jlu_booking.web.tasks import TaskService
+from jlu_booking.web.tasks import TaskDraft, TaskService
 from jlu_booking.web.worker import WorkerResult
 
 
@@ -149,6 +150,27 @@ def test_one_tick_claims_every_due_task_and_writes_run_rows(database, tmp_path):
     assert database.execute(
         "SELECT COUNT(*) FROM booking_tasks WHERE status = 'running'"
     ).fetchone()[0] == 3
+
+
+def test_scheduler_materializes_before_cutoff_and_claims_without_delay(database, tmp_path):
+    user_id, old_id = _insert_task(database, username="daily", execution_date="2026-09-21", status="no_result")
+    companion_id = database.execute("SELECT id FROM companions WHERE user_id=?", (user_id,)).fetchone()[0]
+    plans = DailyPlanService(database)
+    draft = TaskDraft("today", "前卫体育馆", "羽毛球", companion_id, 3,
+                      [["15:30", "17:30"]], False)
+    now = datetime(2026, 9, 22, 6, 0, tzinfo=BEIJING)
+    plans.save(user_id, draft, now=now)
+    plans.set_enabled(user_id, True, now=now)
+    worker = FakeWorker(tmp_path / "runtime")
+    scheduler = Scheduler(database, worker, daily_plans=plans)
+    assert scheduler.run_once(now).started_task_ids == ()
+    scheduled = database.execute(
+        "SELECT id FROM booking_tasks WHERE source='daily' AND status='scheduled'"
+    ).fetchone()[0]
+    tick = scheduler.run_once(datetime(2026, 9, 22, 7, 27, tzinfo=BEIJING))
+    assert tick.started_task_ids == (scheduled,)
+    assert worker.started_task_ids == [scheduled]
+    assert old_id != scheduled
 
 
 def test_stop_request_terminates_only_owned_worker(database, tmp_path):

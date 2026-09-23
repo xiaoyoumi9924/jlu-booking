@@ -140,6 +140,7 @@ def _run_backup(*, environ: Mapping[str, str]) -> str:
 
 def _run_scheduler(*, environ: Mapping[str, str]) -> int:
     from .credentials import CredentialService
+    from .daily_plans import DailyPlanService
     from .maintenance import MaintenanceService
     from .scheduler import Scheduler
     from .security import CredentialCipher
@@ -157,7 +158,10 @@ def _run_scheduler(*, environ: Mapping[str, str]) -> int:
     )
     worker = WorkerAdapter(credentials, settings)
     maintenance = MaintenanceService(connection, settings.runtime_root)
-    scheduler = Scheduler(connection, worker, maintenance=maintenance)
+    scheduler = Scheduler(
+        connection, worker, maintenance=maintenance,
+        daily_plans=DailyPlanService(connection, execution_limit=settings.daily_task_limit),
+    )
     stop_event = threading.Event()
 
     def request_stop(_signum, _frame):

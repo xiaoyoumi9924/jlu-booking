@@ -61,11 +61,13 @@ class Scheduler:
         *,
         maintenance=None,
         clock=None,
+        daily_plans=None,
     ):
         self._connection = connection
         self._worker = worker
         self._maintenance = maintenance
         self._clock = clock or (lambda: datetime.now(BEIJING))
+        self._daily_plans = daily_plans
         self._owned: dict[int, _OwnedWorker] = {}
         self._last_maintenance_date = None
 
@@ -258,6 +260,8 @@ class Scheduler:
 
     def run_once(self, now: datetime) -> SchedulerTick:
         local_now = self._local(now)
+        if self._daily_plans is not None and local_now.time() < START_TIME:
+            self._daily_plans.materialize(local_now)
         finished, stopped = self._observe_owned(local_now)
         started: list[int] = []
         missed: list[int] = []

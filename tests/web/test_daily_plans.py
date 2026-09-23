@@ -1,6 +1,6 @@
 """Recurring-plan safety and ordering tests; no school API calls."""
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -129,3 +129,52 @@ def test_edit_before_cutoff_updates_daily_snapshot_but_after_cutoff_does_not(sta
     plans.save(user_id, draft(companion_id, preferred_court_number=9), now=cutoff)
     assert plans.get_for_user(user_id).preferred_court_number == 9
     assert db.execute("SELECT preferred_court_number FROM booking_tasks WHERE id=?", (task_id,)).fetchone()[0] == 7
+
+
+def test_materialize_respects_enable_order_cap_and_restart(state):
+    db, plans = state
+    owners = []
+    for index in range(12):
+        user_id, companion_id = add_user(db, f"user{index}")
+        owners.append(user_id)
+        plans.save(user_id, draft(companion_id), now=BASE)
+        plans.set_enabled(user_id, True, now=BASE + timedelta(seconds=index))
+    ready = BASE + timedelta(seconds=12)
+    created = plans.materialize(ready)
+    assert len(created) == 10
+    assert plans.materialize(ready) == ()
+    assert DailyPlanService(db).materialize(ready) == ()
+    booked = [row[0] for row in db.execute(
+        "SELECT user_id FROM booking_tasks WHERE source='daily' ORDER BY id"
+    )]
+    assert booked == owners[:10]
+    plans.set_enabled(owners[0], False, now=BASE.replace(minute=30))
+    replacement = plans.materialize(BASE.replace(minute=30))
+    assert len(replacement) == 1
+    assert db.execute("SELECT user_id FROM booking_tasks WHERE id=?", replacement).fetchone()[0] == owners[10]
+
+
+def test_one_shot_wins_and_materialization_stops_at_beijing_cutoff(state):
+    db, plans = state
+    owners = []
+    for index in range(11):
+        user_id, companion_id = add_user(db, f"user{index}")
+        owners.append((user_id, companion_id))
+        plans.save(user_id, draft(companion_id), now=BASE)
+        plans.set_enabled(user_id, True, now=BASE + timedelta(seconds=index))
+    one_shot_id = insert_task(db, *owners[0], None, "scheduled", source="one_shot")
+    before = BASE.replace(hour=7, minute=26, second=59)
+    created = plans.materialize(before.astimezone(timezone.utc))
+    assert len(created) == 9
+    assert db.execute("SELECT status FROM booking_tasks WHERE id=?", (one_shot_id,)).fetchone()[0] == "scheduled"
+    assert db.execute("SELECT COUNT(*) FROM booking_tasks WHERE source='daily' AND user_id=?", (owners[0][0],)).fetchone()[0] == 0
+    assert plans.materialize(BASE.replace(hour=7, minute=27)) == ()
+
+
+def test_materialize_at_exact_cutoff_creates_nothing(state):
+    db, plans = state
+    user_id, companion_id = add_user(db, "alice")
+    plans.save(user_id, draft(companion_id), now=BASE)
+    plans.set_enabled(user_id, True, now=BASE)
+    assert plans.materialize(BASE.replace(hour=7, minute=27)) == ()
+    assert plans.materialize(BASE.replace(hour=7, minute=26, second=59))

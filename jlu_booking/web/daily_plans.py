@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from .db import transaction
 from .security import require_aware
-from .tasks import SCHEDULER_START, TaskDraft, TaskService
+from .tasks import SCHEDULER_START, TaskDraft, TaskError, TaskService
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 
@@ -116,6 +116,62 @@ class DailyPlanService:
         return self.get_for_user(user_id)
 
     def materialize(self, now: datetime) -> tuple[int, ...]:
-        """Filled in by the scheduler integration task."""
-        require_aware(now)
-        return ()
+        """Reserve today's remaining automatic slots in enable-time order."""
+        local = require_aware(now).astimezone(BEIJING)
+        if local.time() >= SCHEDULER_START:
+            return ()
+        created: list[int] = []
+        with transaction(self._connection, immediate=True):
+            rows = self._connection.execute(
+                "SELECT p.* FROM daily_booking_plans p "
+                "JOIN users u ON u.id=p.user_id "
+                "JOIN user_credentials c ON c.user_id=p.user_id "
+                "JOIN companions companion ON companion.id=p.companion_id AND companion.user_id=p.user_id "
+                "WHERE p.enabled=1 AND u.role='user' AND u.status='active' "
+                "AND c.last_status='valid' AND p.enabled_at<=? "
+                "ORDER BY p.enabled_at,p.user_id",
+                (local.isoformat(),),
+            ).fetchall()
+            count = self._connection.execute(
+                "SELECT COUNT(*) FROM booking_tasks WHERE execution_date=? "
+                "AND status!='cancelled'", (local.date().isoformat(),)
+            ).fetchone()[0]
+            for row in rows:
+                if count >= self._execution_limit:
+                    break
+                if self._has_open_or_daily_task(row["user_id"], local.date()):
+                    continue
+                try:
+                    task_id = self._insert_daily_task(row, local)
+                except (TaskError, ValueError):
+                    continue
+                created.append(task_id)
+                count += 1
+        return tuple(created)
+
+    def _has_open_or_daily_task(self, user_id: int, execution_date: date) -> bool:
+        return self._connection.execute(
+            "SELECT 1 FROM booking_tasks WHERE user_id=? AND "
+            "(status IN ('scheduled','running') OR (execution_date=? AND status!='cancelled')) "
+            "LIMIT 1", (user_id, execution_date.isoformat())
+        ).fetchone() is not None
+
+    def _insert_daily_task(self, row, now: datetime) -> int:
+        draft = TaskDraft(
+            target_day=row["target_day"], venue=row["venue"], sport=row["sport"],
+            companion_id=row["companion_id"],
+            preferred_court_number=row["preferred_court_number"],
+            time_priority=json.loads(row["time_priority_json"]),
+            real_booking_enabled=bool(row["real_booking_enabled"]),
+        )
+        values = self._tasks._normalize_draft(row["user_id"], draft)
+        cursor = self._connection.execute(
+            "INSERT INTO booking_tasks (user_id,execution_date,target_day,venue,sport,companion_id,"
+            "preferred_court_number,time_priority_json,real_booking_enabled,status,source,daily_plan_id,"
+            "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'scheduled','daily',?,?,?)",
+            (row["user_id"], now.date().isoformat(), values["target_day"],
+             values["venue"], values["sport"], values["companion_id"],
+             values["preferred_court_number"], values["time_priority_json"],
+             values["real_booking_enabled"], row["id"], now.isoformat(), now.isoformat()),
+        )
+        return int(cursor.lastrowid)
