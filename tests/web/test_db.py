@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from jlu_booking.web.db import connect_database, migrate_database, transaction
+from jlu_booking.web.db import MIGRATION_1, connect_database, migrate_database, transaction
 from jlu_booking.web.settings import WebSettings
 
 
@@ -189,3 +189,49 @@ def test_booking_task_status_constraint_rejects_unknown_value(tmp_path):
             "3, '[]', 'unknown', ?, ?)",
             ("2026-09-22T00:00:00+08:00", "2026-09-22T00:00:00+08:00"),
         )
+
+
+def test_version_two_preserves_old_tasks_and_prevents_duplicate_daily_tasks(tmp_path):
+    connection = connect_database(tmp_path / "web.sqlite3")
+    connection.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+    for statement in MIGRATION_1:
+        connection.execute(statement)
+    stamp = "2026-09-22T06:00:00+08:00"
+    connection.execute("INSERT INTO schema_migrations VALUES (1, ?)", (stamp,))
+    connection.execute(
+        "INSERT INTO users (username,password_hash,role,status,created_at) "
+        "VALUES ('alice','hash','user','active',?)", (stamp,)
+    )
+    connection.execute(
+        "INSERT INTO companions (user_id,student_number_ciphertext,name_ciphertext,verified_at,updated_at) "
+        "VALUES (1,?,?,?,?)", (b'number', b'name', stamp, stamp)
+    )
+    connection.execute(
+        "INSERT INTO booking_tasks (user_id,execution_date,target_day,venue,sport,companion_id,"
+        "preferred_court_number,time_priority_json,status,created_at,updated_at) "
+        "VALUES (1,'2026-09-22','today','前卫体育馆','羽毛球',1,3,'[]','no_result',?,?)",
+        (stamp, stamp),
+    )
+    migrate_database(connection)
+    migrate_database(connection)
+    assert {row[0] for row in connection.execute("SELECT version FROM schema_migrations")} == {1, 2}
+    assert connection.execute("SELECT source FROM booking_tasks WHERE id=1").fetchone()[0] == "one_shot"
+    cursor = connection.execute(
+        "INSERT INTO daily_booking_plans (user_id,enabled,target_day,venue,sport,companion_id,"
+        "preferred_court_number,time_priority_json,real_booking_enabled,created_at,updated_at) "
+        "VALUES (1,1,'today','前卫体育馆','羽毛球',1,3,'[]',0,?,?)",
+        (stamp, stamp),
+    )
+    plan_id = cursor.lastrowid
+    def insert_daily(status):
+        return connection.execute(
+            "INSERT INTO booking_tasks (user_id,execution_date,target_day,venue,sport,companion_id,"
+            "preferred_court_number,time_priority_json,status,source,daily_plan_id,created_at,updated_at) "
+            "VALUES (1,'2026-09-23','today','前卫体育馆','羽毛球',1,3,'[]',?,'daily',?,?,?)",
+            (status, plan_id, stamp, stamp),
+        )
+    insert_daily("no_result")
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_daily("no_result")
+    connection.execute("UPDATE booking_tasks SET status='cancelled' WHERE source='daily'")
+    insert_daily("scheduled")

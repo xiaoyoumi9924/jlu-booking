@@ -78,6 +78,8 @@ class BookingTask:
     claimed_at: datetime | None
     stop_requested_at: datetime | None
     cancelled_at: datetime | None
+    source: str = "one_shot"
+    daily_plan_id: int | None = None
 
 
 class TaskService:
@@ -126,6 +128,8 @@ class TaskService:
             claimed_at=cls._optional_datetime(row["claimed_at"]),
             stop_requested_at=cls._optional_datetime(row["stop_requested_at"]),
             cancelled_at=cls._optional_datetime(row["cancelled_at"]),
+            source=row["source"],
+            daily_plan_id=row["daily_plan_id"],
         )
 
     def get_for_user(self, user_id: int, task_id: int) -> BookingTask:

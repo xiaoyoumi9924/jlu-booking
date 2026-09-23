@@ -159,6 +159,35 @@ MIGRATION_1 = (
 )
 
 
+MIGRATION_2 = (
+    """
+    CREATE TABLE daily_booking_plans (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+        enabled_at TEXT,
+        target_day TEXT NOT NULL CHECK (target_day IN ('today', 'tomorrow')),
+        venue TEXT NOT NULL,
+        sport TEXT NOT NULL,
+        companion_id INTEGER NOT NULL REFERENCES companions(id),
+        preferred_court_number INTEGER NOT NULL CHECK (preferred_court_number > 0),
+        time_priority_json TEXT NOT NULL,
+        real_booking_enabled INTEGER NOT NULL DEFAULT 0 CHECK (real_booking_enabled IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    "ALTER TABLE booking_tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'one_shot' "
+    "CHECK (source IN ('one_shot', 'daily'))",
+    "ALTER TABLE booking_tasks ADD COLUMN daily_plan_id INTEGER REFERENCES daily_booking_plans(id)",
+    """
+    CREATE UNIQUE INDEX one_daily_task_per_plan_date
+    ON booking_tasks(daily_plan_id, execution_date)
+    WHERE source = 'daily' AND status != 'cancelled'
+    """,
+)
+
+
 def connect_database(path: Path | str) -> sqlite3.Connection:
     """Open a configured SQLite connection for Web application state."""
 
@@ -210,14 +239,15 @@ def migrate_database(connection: sqlite3.Connection) -> None:
         """
     )
     with transaction(connection, immediate=True):
-        applied = connection.execute(
-            "SELECT 1 FROM schema_migrations WHERE version = 1"
-        ).fetchone()
-        if applied is not None:
-            return
-        for statement in MIGRATION_1:
-            connection.execute(statement)
-        connection.execute(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-            (1, datetime.now(BEIJING).isoformat()),
-        )
+        applied = {
+            row[0] for row in connection.execute("SELECT version FROM schema_migrations")
+        }
+        for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2)):
+            if version in applied:
+                continue
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (version, datetime.now(BEIJING).isoformat()),
+            )
