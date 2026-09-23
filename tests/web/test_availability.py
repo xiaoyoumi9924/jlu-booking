@@ -253,6 +253,41 @@ def test_simultaneous_user_queries_keep_owner_credentials(web):
         futures = [pool.submit(
             service.query, user.id, "前卫体育馆", "羽毛球", "today", NOW
         ) for user in (alice, bob)]
-        results = [future.result(timeout=3) for future in futures]
+        outcomes = [future.exception(timeout=3) for future in futures]
+        assert outcomes == [None, None], [repr(error) for error in outcomes]
+        results = [future.result() for future in futures]
     assert results[0].slots[0]["court_name"] == "token-alice"
     assert results[1].slots[0]["court_name"] == "token-bob"
+
+
+def test_query_renders_grouped_courts_slot_times_and_empty_state(web):
+    from jlu_booking.web.availability import AvailabilityService
+
+    client, services = web
+    data = {"placeArray": [
+        {"projectName": {"name": "2号场", "id": 2, "shortname": "ymq2"},
+         "projectInfo": [{"state": 1, "starttime": "17:30", "endtime": "19:30"},
+                         {"state": 1, "starttime": "15:30", "endtime": "17:30"}]},
+        {"projectName": {"name": "1号场", "id": 1, "shortname": "ymq1"},
+         "projectInfo": [{"state": 1, "starttime": "15:30", "endtime": "17:30"}]},
+    ]}
+    services.availability = AvailabilityService(
+        services.credentials, services.throttles, query_func=lambda **_kwargs: data
+    )
+    _login(client, "alice")
+    form = {"venue": "前卫体育馆", "sport": "羽毛球", "target_day": "today",
+            "csrf_token": _csrf(client.get("/"))}
+    result = client.post("/availability/query", data=form)
+    assert result.status_code == 200
+    assert 'data-query-results' in result.text
+    assert '查询时间：' in result.text
+    assert result.text.index("1号场") < result.text.index("2号场")
+    assert result.text.index("15:30") < result.text.index("17:30")
+    assert 'data-court-id="1"' in result.text
+    assert 'data-place-short-name="ymq1"' in result.text
+    assert 'data-slot-start="15:30"' in result.text
+    assert 'data-slot-end="17:30"' in result.text
+    data["placeArray"] = []
+    empty = client.post("/availability/query", data=form)
+    assert empty.status_code == 200
+    assert "当前没有可预约时段" in empty.text

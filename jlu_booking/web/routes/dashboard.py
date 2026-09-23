@@ -35,11 +35,22 @@ def dashboard_context(request, session, user, *, result=None, error=None):
     latest_task = services.tasks._record(latest_row) if latest_row else None
     try:
         token_masked = mask_secret(services.credentials.decrypt_token(user.id))
+    except Exception:
+        token_masked = "未绑定"
+    try:
         companion = services.credentials.decrypt_companion(user.id)
         companion_text = f"{companion.name} · {mask_secret(companion.student_number)}"
     except Exception:
-        token_masked = "未绑定"
         companion_text = "未验证"
+    grouped_slots = {}
+    if result is not None:
+        for slot in sorted(
+            result.slots,
+            key=lambda item: (str(item["court_name"]), str(item["start"])),
+        ):
+            grouped_slots.setdefault(str(slot["court_name"]), []).append(slot)
+    selected_venue = result.venue if result else next(iter(VENUES))
+    selected_sport = result.sport if result else next(iter(VENUES[selected_venue]["sports"]))
     return {
         "user": user,
         "csrf_token": session.csrf_token,
@@ -52,6 +63,10 @@ def dashboard_context(request, session, user, *, result=None, error=None):
         "venues": VENUES,
         "availability_result": result,
         "query_error": error,
+        "grouped_slots": grouped_slots,
+        "selected_venue": selected_venue,
+        "selected_sport": selected_sport,
+        "selected_day": "today" if result is None or result.query_date == now.date().isoformat() else "tomorrow",
     }
 
 

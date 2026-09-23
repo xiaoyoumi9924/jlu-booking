@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -11,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 
 BEIJING = ZoneInfo("Asia/Shanghai")
+_TRANSACTION_LOCK = threading.RLock()
 
 TASK_STATUSES = (
     "scheduled",
@@ -183,14 +185,17 @@ def transaction(
 ) -> Iterator[sqlite3.Connection]:
     """Run a commit-or-rollback transaction on an autocommit connection."""
 
-    connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
-    try:
-        yield connection
-    except BaseException:
-        connection.rollback()
-        raise
-    else:
-        connection.commit()
+    # Web requests share one connection across worker threads. Serialize only
+    # the short SQLite transaction, never a school HTTP request.
+    with _TRANSACTION_LOCK:
+        connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+        try:
+            yield connection
+        except BaseException:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:

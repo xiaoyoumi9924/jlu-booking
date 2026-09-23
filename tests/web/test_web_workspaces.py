@@ -2,12 +2,14 @@
 
 import re
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
+from jlu_booking.api import VENUES
 from jlu_booking.token_validation import TokenValidationResult
 from jlu_booking.web.accounts import AccountService
 from jlu_booking.web.app import AppServices, create_app
@@ -126,3 +128,30 @@ def test_newly_activated_user_lands_in_workspace(workspace):
 
     assert response.status_code == 303
     assert response.headers["location"] == "/"
+
+
+def test_workspace_shows_gui_venue_choices_and_responsive_navigation(workspace):
+    user_client, admin_client, _services = workspace
+    _login(user_client, "alice", "long password value")
+    _login(admin_client, "owner", "owner password value")
+    html = user_client.get("/").text
+    assert "未绑定" not in html
+    assert "alice-private-token" not in html
+    assert all(name in html for name in VENUES)
+    for venue_name, info in VENUES.items():
+        for sport in info["sports"]:
+            assert f'data-venue="{venue_name}"' in html
+            assert f'value="{sport}"' in html
+    assert 'name="target_day"' in html
+    assert 'value="today"' in html and 'value="tomorrow"' in html
+    assert 'data-query-results' in html
+    assert '/tasks/new' in html
+    assert '<details' in html and '<summary' in html
+    admin_html = admin_client.get("/admin").text
+    assert 'data-admin-nav' in admin_html
+    assert '/admin/users' in admin_html and '/admin/tasks' in admin_html
+    assert '/admin/audit' in admin_html
+    assert '/availability/query' not in admin_html
+    css = (Path(__file__).parents[2] / "jlu_booking/web/static/app.css").read_text()
+    assert '@media (max-width: 600px)' in css
+    assert 'overflow-x' in css

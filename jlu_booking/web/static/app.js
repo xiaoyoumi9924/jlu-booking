@@ -88,3 +88,37 @@ document.addEventListener("visibilitychange", () => {
   else configureDashboardPolling();
 });
 configureDashboardPolling();
+
+// Keep the GUI's venue choice consistent between live query and new auto tasks.
+for (const venueSelect of document.querySelectorAll("[data-venue-select]")) {
+  const sportSelect = venueSelect.form?.querySelector("[data-sport-select]");
+  if (!sportSelect) continue;
+  if (window.location.pathname === "/tasks/new") {
+    const remembered = localStorage.getItem("jlu-preferred-venue");
+    if (remembered && [...venueSelect.options].some((option) => option.value === remembered)) {
+      venueSelect.value = remembered;
+    }
+  }
+  function syncSports() {
+    const compatible = [...sportSelect.options].filter((option) => option.dataset.venue === venueSelect.value);
+    for (const option of sportSelect.options) {
+      option.hidden = option.dataset.venue !== venueSelect.value;
+      option.disabled = option.hidden;
+    }
+    if (!compatible.some((option) => option.selected) && compatible.length) compatible[0].selected = true;
+    for (const button of document.querySelectorAll("[data-set-venue]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.setVenue === venueSelect.value));
+    }
+  }
+  venueSelect.addEventListener("change", () => {
+    localStorage.setItem("jlu-preferred-venue", venueSelect.value);
+    syncSports();
+  });
+  for (const button of document.querySelectorAll("[data-set-venue]")) {
+    button.addEventListener("click", () => {
+      venueSelect.value = button.dataset.setVenue;
+      venueSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    });
+  }
+  syncSports();
+}

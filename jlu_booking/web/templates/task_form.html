@@ -14,13 +14,13 @@
         </select>
       </label>
       <label>场馆
-        <select name="venue">
+        <select name="venue" data-venue-select>
           {% for venue_name in venues %}<option value="{{ venue_name }}" {% if task and task.venue == venue_name %}selected{% endif %}>{{ venue_name }}</option>{% endfor %}
         </select>
       </label>
       <label>运动项目
-        <select name="sport">
-          {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" {% if (task and task.sport == sport_name) or (not task and sport_name == '羽毛球') %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}
+        <select name="sport" data-sport-select>
+          {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" data-venue="{{ venue_name }}" {% if (task and task.sport == sport_name and task.venue == venue_name) or (not task and sport_name == '羽毛球') %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}
         </select>
       </label>
       <label>首选场地号<input type="number" min="1" name="preferred_court_number" value="{{ task.preferred_court_number if task else 3 }}" required></label>

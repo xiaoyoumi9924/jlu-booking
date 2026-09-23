@@ -1,9 +1,10 @@
 {% extends "admin/shell.html" %}
 {% block title %}管理后台 · JLU 体育馆预约{% endblock %}
 {% block content %}
-<div class="dashboard-head"><h1>管理后台</h1><a href="/admin/reauth">重新验证密码</a></div>
-<div class="shell-grid">
-  <section class="card"><h2>账号</h2><p>有效用户：{{ counts.active }}/30</p><p>待验证：{{ counts.pending }}</p><a href="/admin/users">管理用户</a></section>
-  <section class="card"><h2>任务</h2><p>运行中：{{ counts.running }}</p><p><a href="/admin/tasks">查看全部任务</a></p><p><a href="/admin/audit">查看审计记录</a></p></section>
+<div class="dashboard-head"><div><p class="eyebrow">管理工作台</p><h1>管理员概览</h1></div><a href="/admin/reauth">重新验证密码</a></div>
+<div class="status-grid">
+  <section class="card"><h2>用户管理</h2><p>有效用户：{{ counts.active }}/30</p><p>待验证：{{ counts.pending }}</p><a href="/admin/users">管理用户</a></section>
+  <section class="card"><h2>任务管理</h2><p>运行中：{{ counts.running }}</p><p><a href="/admin/tasks">查看全部任务</a></p></section>
+  <section class="card"><h2>审计记录</h2><p class="muted">查看重要管理操作。</p><a href="/admin/audit">查看审计记录</a></section>
 </div>
 {% endblock %}

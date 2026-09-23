@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block navigation %}
-<nav data-admin-nav aria-label="管理导航" class="workspace-nav">
-  <a href="/admin">概览</a>
-  <a href="/admin/users">用户</a>
-  <a href="/admin/tasks">任务</a>
-  <a href="/admin/audit">审计</a>
-</nav>
+<details open class="workspace-nav admin-nav" data-admin-nav>
+  <summary>管理导航</summary>
+  <nav aria-label="管理导航">
+    <span class="nav-label">管理功能</span>
+    <a href="/admin">概览</a>
+    <a href="/admin/users">用户</a>
+    <a href="/admin/tasks">任务</a>
+    <a href="/admin/audit">审计</a>
+  </nav>
+</details>
 {% endblock %}
