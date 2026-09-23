@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from ...api import VENUES
 from ..dependencies import current_user, now_beijing
 from ..security import mask_secret
 
@@ -12,17 +13,7 @@ from ..security import mask_secret
 router = APIRouter()
 
 
-@router.get("/")
-async def dashboard(request: Request):
-    session, user = current_user(request)
-    if session is None or user is None:
-        return RedirectResponse("/login", 303)
-    if user.must_change_password:
-        return RedirectResponse("/change-password", 303)
-    if user.status == "pending_token":
-        return RedirectResponse("/onboarding/token", 303)
-    if user.role == "admin":
-        return RedirectResponse("/admin", 303)
+def dashboard_context(request, session, user, *, result=None, error=None):
     services = request.app.state.services
     now = now_beijing()
     execution_date = services.tasks.next_execution_date(now)
@@ -49,17 +40,34 @@ async def dashboard(request: Request):
     except Exception:
         token_masked = "未绑定"
         companion_text = "未验证"
+    return {
+        "user": user,
+        "csrf_token": session.csrf_token,
+        "execution_date": execution_date,
+        "remaining": max(0, request.app.state.settings.daily_task_limit - used),
+        "active_task": active_task,
+        "latest_task": latest_task,
+        "token_masked": token_masked,
+        "companion_text": companion_text,
+        "venues": VENUES,
+        "availability_result": result,
+        "query_error": error,
+    }
+
+
+@router.get("/")
+async def dashboard(request: Request):
+    session, user = current_user(request)
+    if session is None or user is None:
+        return RedirectResponse("/login", 303)
+    if user.must_change_password:
+        return RedirectResponse("/change-password", 303)
+    if user.status == "pending_token":
+        return RedirectResponse("/onboarding/token", 303)
+    if user.role == "admin":
+        return RedirectResponse("/admin", 303)
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="dashboard.html",
-        context={
-            "user": user,
-            "csrf_token": session.csrf_token,
-            "execution_date": execution_date,
-            "remaining": max(0, request.app.state.settings.daily_task_limit - used),
-            "active_task": active_task,
-            "latest_task": latest_task,
-            "token_masked": token_masked,
-            "companion_text": companion_text,
-        },
+        context=dashboard_context(request, session, user),
     )

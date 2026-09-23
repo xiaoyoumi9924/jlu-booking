@@ -1,6 +1,19 @@
 {% extends "user_shell.html" %}
 {% block title %}预约面板 · JLU 体育馆预约{% endblock %}
 {% block content %}
+<form method="post" action="/availability/query">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>场馆<select name="venue">{% for venue_name in venues %}<option value="{{ venue_name }}">{{ venue_name }}</option>{% endfor %}</select></label>
+  <label>运动项目<select name="sport"><option value="羽毛球">羽毛球</option></select></label>
+  <label>查询日期<select name="target_day"><option value="today">今天</option><option value="tomorrow">明天</option></select></label>
+  <button type="submit">查询可预约场地</button>
+</form>
+{% if query_error %}<p class="error" role="alert">{{ query_error }}</p>{% endif %}
+{% if availability_result %}<section class="card" data-query-results>
+  <h2>{{ availability_result.venue }} · {{ availability_result.sport }} · {{ availability_result.query_date }}</h2>
+  <p>查询时间：{{ availability_result.queried_at.strftime('%H:%M:%S') }}</p>
+  {% for slot in availability_result.slots %}<p>{{ slot.court_name }} {{ slot.start }}–{{ slot.end }}</p>{% endfor %}
+</section>{% endif %}
 <div class="dashboard-head">
   <div><h1>你好，{{ user.username }}</h1><p class="muted">下一执行日：{{ execution_date }} · 剩余名额：{{ remaining }}/10</p></div>
   <a class="button" href="/tasks/new">创建一次性预约</a>
