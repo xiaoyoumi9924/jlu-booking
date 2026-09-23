@@ -163,7 +163,7 @@ At no point may the same scheduled booking account be active on both servers.
 - SQLite is copied from an explicit backup, followed by `PRAGMA integrity_check` on the destination.
 - File permissions for tokens, keys, and environment files are verified against the source before services start.
 - Existing web password hashes are migrated as database data; plaintext user passwords are not needed.
-- After successful cutover, rotate both previously disclosed root passwords and the disclosed web administrator password, and install key-based SSH authentication.
+- After successful cutover, install key-based SSH authentication and rotate the destination root password and disclosed web administrator password. Because the source ECS belongs to another owner, remove migration access but leave source-root password rotation to that owner rather than changing it unilaterally.
 
 ## 9. Failure handling and rollback
 
@@ -205,4 +205,3 @@ Verification must cover:
 - Do not deploy from an uncommitted application worktree.
 - Do not switch DNS before the destination passes local verification.
 - Do not remove or repurpose files on the source server during this migration.
-
