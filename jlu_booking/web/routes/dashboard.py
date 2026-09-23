@@ -33,6 +33,31 @@ def dashboard_context(request, session, user, *, result=None, error=None):
     ).fetchone()
     active_task = services.tasks._record(active_row) if active_row else None
     latest_task = services.tasks._record(latest_row) if latest_row else None
+    daily_plan = services.daily_plans.get_for_user(user.id)
+    daily_status = "未开启"
+    if daily_plan:
+        running_row = services.connection.execute(
+            "SELECT status FROM booking_tasks WHERE daily_plan_id=? "
+            "AND status='running' ORDER BY id DESC LIMIT 1",
+            (daily_plan.id,),
+        ).fetchone()
+        daily_row = services.connection.execute(
+            "SELECT status FROM booking_tasks WHERE daily_plan_id=? "
+            "AND execution_date=? ORDER BY id DESC LIMIT 1",
+            (daily_plan.id, execution_date.isoformat()),
+        ).fetchone()
+        if running_row:
+            daily_status = "运行中" if daily_plan.enabled else "已关闭；当前任务仍在运行"
+        elif not daily_plan.enabled:
+            daily_status = "未开启"
+        elif daily_row and daily_row["status"] == "scheduled":
+            daily_status = "已排程"
+        elif daily_row and daily_row["status"] == "running":
+            daily_status = "运行中"
+        elif daily_row and daily_row["status"] != "cancelled":
+            daily_status = f"最近结果：{daily_row['status']}"
+        else:
+            daily_status = "已开启，当前执行日未获得名额"
     try:
         token_masked = mask_secret(services.credentials.decrypt_token(user.id))
     except Exception:
@@ -58,6 +83,7 @@ def dashboard_context(request, session, user, *, result=None, error=None):
         "remaining": max(0, request.app.state.settings.daily_task_limit - used),
         "active_task": active_task,
         "latest_task": latest_task,
+        "daily_status": daily_status,
         "token_masked": token_masked,
         "companion_text": companion_text,
         "venues": VENUES,

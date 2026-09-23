@@ -15,8 +15,9 @@ from .accounts import AccountService, ActiveUserLimitReached
 from .availability import AvailabilityService
 from .audit import AuditService, ReauthenticationService
 from .credentials import CredentialService
+from .daily_plans import DailyPlanService
 from .db import connect_database, migrate_database
-from .routes import admin, auth, availability, dashboard, profile, task_routes
+from .routes import admin, auth, availability, daily_plans, dashboard, profile, task_routes
 from .security import (
     CredentialCipher,
     PasswordService,
@@ -43,6 +44,7 @@ class AppServices:
     audit: AuditService | None = None
     reauth: ReauthenticationService | None = None
     availability: AvailabilityService | None = None
+    daily_plans: DailyPlanService | None = None
 
 
 def _default_services(settings: WebSettings) -> AppServices:
@@ -103,6 +105,10 @@ def create_app(
         selected.availability = AvailabilityService(
             selected.credentials, selected.throttles
         )
+    if selected.daily_plans is None:
+        selected.daily_plans = DailyPlanService(
+            selected.connection, execution_limit=settings.daily_task_limit
+        )
     selected.credentials._reauth_checker = (
         lambda admin_id, now: selected.reauth.is_valid(admin_id, now)
     )
@@ -149,6 +155,7 @@ def create_app(
     app.include_router(profile.router)
     app.include_router(dashboard.router)
     app.include_router(availability.router)
+    app.include_router(daily_plans.router)
     app.include_router(task_routes.router)
     app.include_router(admin.router)
     return app

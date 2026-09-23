@@ -1,0 +1,53 @@
+{% extends "user_shell.html" %}
+{% block title %}每日自动预约 · JLU 体育馆预约{% endblock %}
+{% block content %}
+<div class="dashboard-head"><div><p class="eyebrow">自动预约</p><h1>每日自动预约</h1><p class="muted">状态：<strong>{{ status_text }}</strong></p></div><a class="button secondary" href="/tasks/new">创建一次性预约</a></div>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<div class="shell-grid">
+  <section class="card">
+    <h2>预约配置</h2>
+    <p class="muted">保存配置不会自动开启每日任务。开启后，按开启时间先到先得分配每日名额。</p>
+    <form method="post" action="/daily-plan">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>预约目标日<select name="target_day" data-target-day>
+        <option value="today" {% if not plan or plan.target_day == 'today' %}selected{% endif %}>执行当天</option>
+        <option value="tomorrow" {% if plan and plan.target_day == 'tomorrow' %}selected{% endif %}>执行次日</option>
+      </select></label>
+      <label>场馆<select name="venue" data-venue-select>
+        {% for venue_name in venues %}<option value="{{ venue_name }}" {% if plan and plan.venue == venue_name %}selected{% endif %}>{{ venue_name }}</option>{% endfor %}
+      </select></label>
+      <label>运动项目<select name="sport" data-sport-select>
+        {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" data-venue="{{ venue_name }}" {% if (plan and plan.venue == venue_name and plan.sport == sport_name) or (not plan and venue_name == '前卫体育馆' and sport_name == '羽毛球') %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}
+      </select></label>
+      <p>同行人：{% if companion_name %}{{ companion_name }}（已验证）{% else %}<a href="/profile">请先验证同行人</a>{% endif %}</p>
+      <label>首选场地号<input type="number" min="1" name="preferred_court_number" value="{{ plan.preferred_court_number if plan else 3 }}" required></label>
+      <fieldset><legend>时间优先级（可上下调整）</legend>
+        {% for start, end in (plan.time_priority if plan else priority_options) %}
+        <div class="priority-row"><label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" checked><span>{{ start }}–{{ end }}</span></label><button type="button" class="mini secondary" data-priority-up aria-label="上移 {{ start }}–{{ end }}">上移</button><button type="button" class="mini secondary" data-priority-down aria-label="下移 {{ start }}–{{ end }}">下移</button></div>
+        {% endfor %}
+      </fieldset>
+      <fieldset><legend>执行模式</legend>
+        <label class="check-row"><input type="radio" name="mode" value="scan" {% if not plan or not plan.real_booking_enabled %}checked{% endif %}>仅扫描，不提交预约</label>
+        <label class="check-row warning"><input type="radio" name="mode" value="real" {% if plan and plan.real_booking_enabled %}checked{% endif %}>真实预约，会向学校系统提交</label>
+        <label class="check-row"><input type="checkbox" name="confirm_real" value="yes">若选择真实预约，我确认保存此设置</label>
+      </fieldset>
+      <button type="submit">保存每日配置</button>
+    </form>
+  </section>
+  <aside class="card summary-card" data-execution-date="{{ execution_date }}">
+    <h2>执行与状态</h2>
+    <p>下一可执行日：<strong>{{ execution_date }}</strong> 07:27（北京时间）</p>
+    <p>预约目标日：<strong data-target-date>{{ target_date }}</strong></p>
+    {% if task %}<p>当前任务：<a href="/tasks/{{ task.id }}">{{ task.status }}</a></p>{% endif %}
+    <p class="muted">07:27 后不再新建当天任务。开启但未获得名额时，今天不会运行；关闭会取消尚未开始的每日任务。</p>
+    {% if plan and plan.enabled %}
+    <form method="post" action="/daily-plan/disable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger">关闭每日自动预约</button></form>
+    {% elif plan %}
+    <form method="post" action="/daily-plan/enable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% if plan.real_booking_enabled %}<label class="check-row"><input type="checkbox" name="confirm_real" value="yes" required>我确认开启每日真实预约</label>{% endif %}
+      <button type="submit">开启每日自动预约</button>
+    </form>
+    {% else %}<p class="muted">请先保存配置，再开启每日任务。</p>{% endif %}
+  </aside>
+</div>
+{% endblock %}
