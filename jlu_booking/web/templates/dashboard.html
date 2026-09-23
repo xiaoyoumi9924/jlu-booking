@@ -40,7 +40,7 @@
   {% if availability_result %}
   <p class="muted">查询时间：{{ availability_result.queried_at.strftime('%Y-%m-%d %H:%M:%S') }} 北京时间</p>
   {% if grouped_slots %}<div class="court-grid">{% for court_name, slots in grouped_slots.items() %}
-    <section class="court-card"><h3>{{ court_name }}</h3><ul class="slot-list">{% for slot in slots %}<li data-court-id="{{ slot.court_id }}" data-place-short-name="{{ slot.place_short_name }}" data-slot-start="{{ slot.start }}" data-slot-end="{{ slot.end }}"><time>{{ slot.start }}</time>–<time>{{ slot.end }}</time></li>{% endfor %}</ul></section>
+    <section class="court-card"><h3>{{ court_name }}</h3><ul class="slot-list">{% for slot in slots %}<li data-court-id="{{ slot.court_id }}" data-place-short-name="{{ slot.place_short_name }}" data-slot-start="{{ slot.start }}" data-slot-end="{{ slot.end }}"><span><time>{{ slot.start }}</time>–<time>{{ slot.end }}</time></span><form method="post" action="/manual/precheck"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="candidate_id" value="{{ slot.candidate_id }}"><button type="submit" class="mini">检查此时段</button></form></li>{% endfor %}</ul></section>
   {% endfor %}</div>{% else %}<p class="empty-state">当前没有可预约时段。</p>{% endif %}
   {% else %}<p class="empty-state">选择运动项目和日期，点击查询即可查看空闲场地与时段。</p>{% endif %}
 </section>

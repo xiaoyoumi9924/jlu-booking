@@ -16,8 +16,9 @@ from .availability import AvailabilityService
 from .audit import AuditService, ReauthenticationService
 from .credentials import CredentialService
 from .daily_plans import DailyPlanService
+from .manual_booking import ManualBookingService
 from .db import connect_database, migrate_database
-from .routes import admin, auth, availability, daily_plans, dashboard, profile, task_routes
+from .routes import admin, auth, availability, daily_plans, dashboard, manual_booking, profile, task_routes
 from .security import (
     CredentialCipher,
     PasswordService,
@@ -45,6 +46,7 @@ class AppServices:
     reauth: ReauthenticationService | None = None
     availability: AvailabilityService | None = None
     daily_plans: DailyPlanService | None = None
+    manual_booking: ManualBookingService | None = None
 
 
 def _default_services(settings: WebSettings) -> AppServices:
@@ -103,11 +105,16 @@ def create_app(
         )
     if selected.availability is None:
         selected.availability = AvailabilityService(
-            selected.credentials, selected.throttles
+            selected.credentials, selected.throttles,
+            database_path=settings.database_path,
         )
     if selected.daily_plans is None:
         selected.daily_plans = DailyPlanService(
             selected.connection, execution_limit=settings.daily_task_limit
+        )
+    if selected.manual_booking is None:
+        selected.manual_booking = ManualBookingService(
+            settings.database_path, selected.credentials
         )
     selected.credentials._reauth_checker = (
         lambda admin_id, now: selected.reauth.is_valid(admin_id, now)
@@ -156,6 +163,7 @@ def create_app(
     app.include_router(dashboard.router)
     app.include_router(availability.router)
     app.include_router(daily_plans.router)
+    app.include_router(manual_booking.router)
     app.include_router(task_routes.router)
     app.include_router(admin.router)
     return app

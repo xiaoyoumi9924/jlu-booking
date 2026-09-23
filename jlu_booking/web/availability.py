@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ..api import extract_available_slots, query_courts, resolve_venue_sport
 from ..auto import is_account_blocked_error, is_auth_error, is_rate_limit_error
+from .db import connect_database
 from .security import require_aware
 
 
@@ -41,8 +44,12 @@ class AvailabilityService:
         *,
         query_func=query_courts,
         slots_func=extract_available_slots,
+        database_path: Path | None = None,
     ):
-        self._credentials = credentials
+        self._cipher = credentials._cipher
+        self._database_path = Path(database_path or credentials._connection.execute(
+            "PRAGMA database_list"
+        ).fetchone()[2])
         self._throttles = throttles
         self._query_func = query_func
         self._slots_func = slots_func
@@ -59,18 +66,23 @@ class AvailabilityService:
         if target_day not in {"today", "tomorrow"}:
             raise ValueError("查询日期只能选择今天或明天。")
         shop_num, short_name = resolve_venue_sport(venue, sport)
-        owner = self._credentials._connection.execute(
-            "SELECT role, status FROM users WHERE id=?", (int(user_id),)
-        ).fetchone()
-        if owner is None or owner["role"] != "user" or owner["status"] != "active":
-            raise AvailabilityQueryError("access", "当前账号不能查询场地。")
+        with closing(connect_database(self._database_path)) as connection:
+            owner = connection.execute(
+                "SELECT u.role,u.status,c.last_status,c.token_ciphertext "
+                "FROM users u LEFT JOIN user_credentials c ON c.user_id=u.id "
+                "WHERE u.id=?", (int(user_id),)
+            ).fetchone()
+            if (owner is None or owner["role"] != "user" or owner["status"] != "active"
+                    or owner["last_status"] != "valid"):
+                raise AvailabilityQueryError("access", "当前账号不能查询场地。")
+            ciphertext = owner["token_ciphertext"]
         self._throttles.consume(
             f"manual-query:{int(user_id)}",
             limit=6,
             window=QUERY_WINDOW,
             now=local,
         )
-        token = self._credentials.decrypt_token(int(user_id))
+        token = self._cipher.decrypt(ciphertext)
         query_date = (
             local.date() + timedelta(days=int(target_day == "tomorrow"))
         ).isoformat()

@@ -1,0 +1,20 @@
+{% extends "user_shell.html" %}
+{% block title %}检查手动预约 · JLU 体育馆预约{% endblock %}
+{% block content %}
+<section class="card manual-card">
+  <p class="eyebrow">手动预约 · 预约前检查</p><h1>确认场地与时段</h1>
+  {% if error %}<p class="error" role="alert">{{ error }}</p><a href="/">重新查询场地</a>
+  {% elif check %}
+  <p>学校系统预检通过。请确认以下信息，再决定是否提交真实预约。</p>
+  <dl><dt>场馆</dt><dd>{{ check.venue }}</dd><dt>运动项目</dt><dd>{{ check.sport }}</dd><dt>目标日期</dt><dd>{{ check.query_date }}</dd><dt>场地</dt><dd>{{ check.court_name }}</dd><dt>时段</dt><dd>{{ check.start }}–{{ check.end }}</dd><dt>同行人</dt><dd>{{ check.companion_name }}</dd></dl>
+  <p class="warning">点击最终确认按钮将向学校系统提交真实预约。</p>
+  <form method="post" action="/manual/submit">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="attempt_id" value="{{ check.attempt_id }}">
+    <input type="hidden" name="nonce" value="{{ check.nonce }}">
+    <button type="submit">确认真实预约</button>
+  </form>
+  <p><a href="/">返回查询，不提交</a></p>
+  {% endif %}
+</section>
+{% endblock %}

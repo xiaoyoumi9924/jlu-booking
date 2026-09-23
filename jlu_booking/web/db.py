@@ -188,6 +188,46 @@ MIGRATION_2 = (
 )
 
 
+MIGRATION_3 = (
+    """
+    CREATE TABLE manual_candidates (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        venue TEXT NOT NULL,
+        sport TEXT NOT NULL,
+        query_date TEXT NOT NULL,
+        court_name TEXT NOT NULL,
+        place_short_name TEXT NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX manual_candidates_by_owner ON manual_candidates(user_id, expires_at)",
+    """
+    CREATE TABLE manual_booking_attempts (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        candidate_id TEXT NOT NULL REFERENCES manual_candidates(id),
+        companion_id INTEGER NOT NULL REFERENCES companions(id),
+        companion_updated_at TEXT NOT NULL,
+        school_companion_id TEXT NOT NULL,
+        credential_updated_at TEXT NOT NULL,
+        confirmation_hash BLOB NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('prechecked', 'submitting', 'success', 'rejected', 'unknown')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX one_manual_submission_per_user
+    ON manual_booking_attempts(user_id) WHERE status='submitting'
+    """,
+)
+
+
 def connect_database(path: Path | str) -> sqlite3.Connection:
     """Open a configured SQLite connection for Web application state."""
 
@@ -242,7 +282,7 @@ def migrate_database(connection: sqlite3.Connection) -> None:
         applied = {
             row[0] for row in connection.execute("SELECT version FROM schema_migrations")
         }
-        for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2)):
+        for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3)):
             if version in applied:
                 continue
             for statement in statements:

@@ -69,6 +69,9 @@ body:has(.workspace-nav) .page { width: min(1180px, calc(100% - 296px)); margin:
 .court-card h3 { margin: 0 0 12px; color: #0b2f70; }
 .slot-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .slot-list li { padding: 8px 12px; background: #eaf7f0; color: #116849; border-radius: 7px; font-weight: 700; }
+.slot-list li form { margin-top: 8px; }
+.slot-list li button { width: 100%; }
+.manual-card { max-width: 720px; }
 .empty-state { margin: 22px 0 8px; min-height: 140px; display: grid; place-items: center; text-align: center; color: #526078; }
 @media (max-width: 1050px) { .query-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) {

@@ -191,7 +191,7 @@ def test_booking_task_status_constraint_rejects_unknown_value(tmp_path):
         )
 
 
-def test_version_two_preserves_old_tasks_and_prevents_duplicate_daily_tasks(tmp_path):
+def test_versioned_migrations_preserve_old_tasks_and_prevent_duplicate_daily_tasks(tmp_path):
     connection = connect_database(tmp_path / "web.sqlite3")
     connection.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
     for statement in MIGRATION_1:
@@ -214,7 +214,7 @@ def test_version_two_preserves_old_tasks_and_prevents_duplicate_daily_tasks(tmp_
     )
     migrate_database(connection)
     migrate_database(connection)
-    assert {row[0] for row in connection.execute("SELECT version FROM schema_migrations")} == {1, 2}
+    assert {row[0] for row in connection.execute("SELECT version FROM schema_migrations")} == {1, 2, 3}
     assert connection.execute("SELECT source FROM booking_tasks WHERE id=1").fetchone()[0] == "one_shot"
     cursor = connection.execute(
         "INSERT INTO daily_booking_plans (user_id,enabled,target_day,venue,sport,companion_id,"
