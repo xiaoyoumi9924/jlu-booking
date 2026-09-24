@@ -1,5 +1,8 @@
 "use strict";
 document.documentElement.classList.add("js-ready");
+if (window.matchMedia("(max-width: 900px)").matches) {
+  document.querySelector("[data-user-nav]")?.removeAttribute("open");
+}
 window.JLUBooking = Object.freeze({
   isPageVisible: () => document.visibilityState === "visible",
   setText: (element, value) => { if (element) element.textContent = String(value); }

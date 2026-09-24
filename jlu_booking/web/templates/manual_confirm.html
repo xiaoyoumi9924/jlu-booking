@@ -1,8 +1,9 @@
 {% extends "user_shell.html" %}
 {% block title %}检查手动预约 · JLU 体育馆预约{% endblock %}
+{% block workspace_title %}手动预约确认{% endblock %}
 {% block content %}
-<section class="card manual-card">
-  <p class="eyebrow">手动预约 · 预约前检查</p><h1>确认场地与时段</h1>
+<section class="card manual-card workspace-form-card">
+  <p class="eyebrow">手动预约 · 预约前检查</p><h2>确认场地与时段</h2>
   {% if error %}<p class="error" role="alert">{{ error }}</p><a href="/">重新查询场地</a>
   {% elif check %}
   <p>学校系统预检通过。请确认以下信息，再决定是否提交真实预约。</p>

@@ -142,6 +142,41 @@ body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 320px); max-w
 .workspace-notice { margin: 0 0 16px; padding: 12px 14px; background: #fff6e6; border-left: 3px solid #bf7a20; color: #744a0e; font-size: .84rem; }
 .workspace-notice a { color: inherit; font-weight: 700; }
 .user-workspace .court-card { border-radius: 0; }
+.user-workspace .workspace-form-card, .user-workspace .workspace-info-card { border: 1px solid #dce5f3; border-radius: 0; box-shadow: none; }
+.user-workspace .workspace-form-card h2:first-child, .user-workspace .workspace-info-card h2:first-child { margin-top: 0; color: #172033; }
+.workspace-page-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 18px; }
+.workspace-page-toolbar p { margin: 0; }
+.user-workspace .workspace-form-card fieldset { border-radius: 0; }
+.user-workspace .workspace-form-card button, .user-workspace .workspace-info-card button, .user-workspace .workspace-page-toolbar .button { border-radius: 0; }
+.user-workspace .workspace-form-card input, .user-workspace .workspace-form-card select { border-radius: 0; }
+@media (min-width: 1800px) {
+  .workspace-nav { width: 500px; }
+  .workspace-nav-inner { padding: 38px 30px 34px; }
+  .workspace-brand { margin-bottom: 28px; padding-bottom: 30px; }
+  .workspace-logo { width: 138px; height: 138px; margin-bottom: 18px; }
+  .workspace-logo img { width: 136px; height: 136px; }
+  .workspace-brand strong { font-size: 2rem; }
+  .workspace-brand small { font-size: .9rem; }
+  .workspace-nav-card { min-height: 102px; padding: 20px; }
+  .workspace-nav-card.is-active { padding-left: 16px; }
+  .workspace-venue-card { min-height: 144px; padding: 20px; }
+  .workspace-venue-card.is-active { padding: 19px; }
+  .workspace-nav-icon { flex-basis: 42px; height: 48px; font-size: 1rem; }
+  .workspace-nav-card strong, .workspace-venue-card strong { font-size: 1.15rem; }
+  .workspace-nav-card small, .workspace-venue-card small { font-size: .82rem; }
+  .workspace-nav-section { font-size: .9rem; padding-top: 20px; }
+  .workspace-sport-tags em { font-size: .78rem; }
+  body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 500px); margin-left: 500px; padding: 0 48px 30px; }
+  .workspace-head { min-height: 142px; margin: 0 -48px 34px; padding: 24px 54px; }
+  .workspace-head h1 { font-size: 2rem; }
+  .user-workspace .query-card, .user-workspace .results-card { padding: 30px 38px; }
+  .query-card .section-head { margin-bottom: 30px; }
+  .query-form-gui { min-height: 92px; }
+  .query-summary-item { min-height: 120px; padding: 22px; }
+  .query-summary-item strong { font-size: 1.2rem; }
+  .results-body { min-height: 580px; }
+  .results-body .empty-state { min-height: 540px; }
+}
 @media (max-width: 1050px) { .query-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1250px) { .query-form-gui { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; } .query-form-gui .query-submit { grid-column: 1 / -1; justify-self: start; } .query-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) {
@@ -165,6 +200,7 @@ body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 320px); max-w
   .results-card .results-head { align-items: stretch; flex-direction: column; }
   .results-actions { flex-wrap: wrap; }
   .workspace-content-footer { flex-direction: column; }
+  .workspace-page-toolbar { align-items: stretch; flex-direction: column; }
   .card { padding: 18px; }
   .status-grid, .court-grid { grid-template-columns: minmax(0, 1fr); }
 }

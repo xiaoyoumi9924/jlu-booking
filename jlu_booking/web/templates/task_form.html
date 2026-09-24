@@ -1,9 +1,10 @@
 {% extends "user_shell.html" %}
 {% block title %}{% if task %}编辑任务{% else %}创建任务{% endif %} · JLU 体育馆预约{% endblock %}
+{% block workspace_title %}自动预约{% endblock %}
 {% block content %}
 <div class="shell-grid">
-  <section class="card">
-    <h1>{% if task %}编辑预约任务{% else %}创建一次性预约{% endif %}</h1>
+  <section class="card workspace-form-card">
+    <h2>{% if task %}编辑预约任务{% else %}创建一次性预约{% endif %}</h2>
     {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
     <form method="post" action="{% if task %}/tasks/{{ task.id }}/edit{% else %}/tasks/new{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -40,7 +41,7 @@
       <button type="submit">确认保存</button>
     </form>
   </section>
-  <aside class="card summary-card" data-execution-date="{{ execution_date }}">
+  <aside class="card summary-card workspace-info-card" data-execution-date="{{ execution_date }}">
     <h2>确认日期</h2>
     <p>程序启动日：<strong>{{ execution_date }}</strong> 07:27（北京时间）</p>
     <p>当前目标日：<strong data-target-date>{{ target_date }}</strong></p>

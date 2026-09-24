@@ -1,9 +1,10 @@
 {% extends "user_shell.html" %}
 {% block title %}任务 #{{ task.id }} · JLU 体育馆预约{% endblock %}
+{% block workspace_title %}预约任务 #{{ task.id }}{% endblock %}
 {% block content %}
-<div class="dashboard-head"><h1>预约任务 #{{ task.id }}</h1><a href="/">返回面板</a></div>
+<div class="workspace-page-toolbar"><span></span><a href="/">返回场地查询</a></div>
 <div class="shell-grid" data-task-status-url="/tasks/{{ task.id }}/status" data-poll-ms="3000">
-  <section class="card">
+  <section class="card workspace-form-card">
     <h2>任务状态</h2>
     <p><span class="badge status-{{ task.status }}" data-task-status>{% if task.status == 'success' %}预约成功{% else %}{{ task.status }}{% endif %}</span></p>
     <p>运行阶段：<span data-task-phase>尚未开始</span></p>
@@ -17,7 +18,7 @@
     </div>
     {% if task.status == 'running' %}<p class="warning">停止任务不代表预约一定未提交；若请求已经发出，请到学校系统核对最终结果。</p>{% endif %}
   </section>
-  <section class="card">
+  <section class="card workspace-info-card">
     <h2>运行日志</h2>
     <pre class="log-region" data-log-region aria-live="polite">等待日志…</pre>
   </section>

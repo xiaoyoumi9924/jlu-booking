@@ -1,10 +1,11 @@
 {% extends "user_shell.html" %}
 {% block title %}每日自动预约 · JLU 体育馆预约{% endblock %}
+{% block workspace_title %}每日自动预约{% endblock %}
 {% block content %}
-<div class="dashboard-head"><div><p class="eyebrow">自动预约</p><h1>每日自动预约</h1><p class="muted">状态：<strong>{{ status_text }}</strong></p></div><a class="button secondary" href="/tasks/new">创建一次性预约</a></div>
+<div class="workspace-page-toolbar"><p class="muted">状态：<strong>{{ status_text }}</strong></p><a class="button secondary" href="/tasks/new">创建一次性预约</a></div>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <div class="shell-grid">
-  <section class="card">
+  <section class="card workspace-form-card">
     <h2>预约配置</h2>
     <p class="muted">保存配置不会自动开启每日任务。开启后，按开启时间先到先得分配每日名额。</p>
     <form method="post" action="/daily-plan">
@@ -34,7 +35,7 @@
       <button type="submit">保存每日配置</button>
     </form>
   </section>
-  <aside class="card summary-card" data-execution-date="{{ execution_date }}">
+  <aside class="card summary-card workspace-info-card" data-execution-date="{{ execution_date }}">
     <h2>执行与状态</h2>
     <p>下一可执行日：<strong>{{ execution_date }}</strong> 07:27（北京时间）</p>
     <p>预约目标日：<strong data-target-date>{{ target_date }}</strong></p>

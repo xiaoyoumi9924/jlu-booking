@@ -196,3 +196,25 @@ def test_venue_link_reloads_matching_sport_choices(workspace):
     invalid = user_client.get("/?venue=invalid")
     assert invalid.status_code == 200
     assert 'data-selected-venue="前卫体育馆"' in invalid.text
+
+
+def test_user_pages_share_gui_shell_with_distinct_page_titles(workspace):
+    user_client, admin_client, _services = workspace
+    _login(user_client, "alice", "long password value")
+    _login(admin_client, "owner", "owner password value")
+    for path, title, form_action in (
+        ("/", "场地预约查询", "/availability/query"),
+        ("/tasks/new", "自动预约", "/tasks/new"),
+        ("/daily-plan", "每日自动预约", "/daily-plan"),
+        ("/profile", "个人中心", "/profile/token"),
+    ):
+        page = user_client.get(path)
+        assert page.status_code == 200
+        assert 'class="workspace-head"' in page.text
+        assert f"<h1>{title}</h1>" in page.text
+        assert 'href="/profile"' in page.text
+        assert f'action="{form_action}"' in page.text
+        assert 'data-user-nav' in page.text
+    admin = admin_client.get("/admin")
+    assert 'data-admin-nav' in admin.text
+    assert 'data-user-nav' not in admin.text
