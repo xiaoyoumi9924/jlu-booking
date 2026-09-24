@@ -46,14 +46,46 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px; border-bottom: 1px solid #E1E7F0; vertical-align: top; }
 @media (max-width: 899px) { .shell-grid { grid-template-columns: 1fr; } .page { margin-top: 20px; } }
 
-/* The browser workspace follows the desktop GUI's blue navigation rail and cards. */
-.workspace-nav { position: fixed; top: 68px; bottom: 0; left: 0; width: 248px; overflow-y: auto; background: #16428d; color: #fff; padding: 28px 18px; z-index: 2; }
+/* Ordinary-user workspace follows gui.py; the admin and auth shells stay separate. */
+.workspace-nav { position: fixed; inset: 0 auto 0 0; width: 320px; overflow-y: auto; background: #144399; color: #fff; z-index: 2; }
 .workspace-nav summary { display: none; }
-.workspace-nav nav { display: grid; gap: 10px; }
-.workspace-nav .nav-label { margin: 8px 10px 14px; color: #bed0f2; font-size: .8rem; font-weight: 700; letter-spacing: .08em; }
-.workspace-nav a { display: block; color: #fff; padding: 13px 16px; text-decoration: none; border-radius: 8px; background: rgba(255,255,255,.08); font-weight: 700; }
-.workspace-nav a:hover, .workspace-nav a:focus-visible { background: rgba(255,255,255,.2); }
-body:has(.workspace-nav) .page { width: min(1180px, calc(100% - 296px)); margin: 32px auto 32px calc(248px + 24px); }
+.workspace-nav-inner { min-height: 100%; display: flex; flex-direction: column; padding: 24px 20px 28px; }
+.workspace-nav a { color: #fff; text-decoration: none; }
+.workspace-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 0 8px 18px; padding-bottom: 22px; border-bottom: 1px solid #3b65ab; }
+.workspace-logo { width: 86px; height: 86px; display: grid; place-items: center; background: #fff; border: 1px solid #7698d1; margin-bottom: 12px; }
+.workspace-logo img { width: 84px; height: 84px; object-fit: contain; }
+.workspace-brand strong { font-size: 1.35rem; letter-spacing: .02em; }
+.workspace-brand small { color: #c9d8f3; font-size: .72rem; font-weight: 700; letter-spacing: .08em; }
+.workspace-nav nav { display: grid; gap: 9px; }
+.workspace-nav-section { display: flex; justify-content: space-between; gap: 12px; color: #b7cbea; font-size: .77rem; font-weight: 700; padding: 9px 2px 6px; }
+.workspace-venue-section { margin-top: 12px; }
+.workspace-extra-section { margin-top: 6px; }
+.workspace-nav-card, .workspace-venue-card { display: flex; gap: 12px; align-items: flex-start; background: #103a78; border: 1px solid #315daa; padding: 12px; min-width: 0; }
+.workspace-nav-card { min-height: 70px; }
+.workspace-nav-card.is-active { border-left: 5px solid #fff; background: #2d5ba3; padding-left: 8px; }
+.workspace-venue-card.is-active { border: 2px solid #1f9d68; padding: 11px; }
+.workspace-nav-icon { flex: 0 0 31px; height: 32px; display: grid; place-items: center; background: #24539a; color: #fff; font-size: .85rem; font-weight: 700; }
+.is-active > .workspace-nav-icon { background: #1f9d68; }
+.workspace-nav-card strong, .workspace-venue-card strong { display: block; font-size: .95rem; }
+.workspace-nav-card small, .workspace-venue-card small { display: block; margin-top: 5px; color: #b9ccea; font-size: .7rem; line-height: 1.35; }
+.workspace-venue-card.is-active small { color: #fff; }
+.workspace-venue-copy { min-width: 0; }
+.workspace-sport-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.workspace-sport-tags em { padding: 3px 6px; background: #1a4787; color: #c8d8f1; font-size: .67rem; font-style: normal; }
+.workspace-extra-link { display: block; padding: 10px 13px; background: #103a78; border-left: 3px solid transparent; font-weight: 700; font-size: .86rem; }
+.workspace-extra-link.is-active { border-left-color: #1f9d68; }
+.workspace-nav a:hover, .workspace-nav a:focus-visible { background-color: #2d5ba3; }
+.workspace-nav-footer { display: grid; gap: 8px; margin: auto 8px 0; padding-top: 30px; color: #d5e1f5; font-size: .8rem; }
+.workspace-nav-footer span { color: #bed0ec; font-size: .72rem; }
+body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 320px); max-width: none; margin: 0 0 0 320px; padding: 0 28px 24px; }
+.workspace-head { min-height: 116px; margin: 0 -28px 22px; padding: 18px 30px; background: #fff; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.workspace-kicker { margin: 0 0 7px; color: #2d61b7; font-size: .8rem; font-weight: 700; }
+.workspace-head h1 { color: #172033; font-size: 1.55rem; margin: 0; }
+.workspace-head-actions { display: flex; align-items: center; gap: 12px; }
+.workspace-ready { padding: 8px 12px; color: #147a55; background: #e8f7f0; font-size: .78rem; font-weight: 700; white-space: nowrap; }
+.workspace-user { color: #526078; font-size: .8rem; }
+.workspace-head-actions form { display: block; }
+.workspace-logout { min-height: 32px; padding: 5px 9px; background: #f3f6fa; color: #526078; font-size: .78rem; border-radius: 0; }
 .eyebrow { margin: 0 0 6px; color: #24539c; font-size: .82rem; font-weight: 800; letter-spacing: .08em; }
 .section-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 22px; }
 .section-head h2 { margin: 0; font-size: 1.35rem; }
@@ -74,12 +106,18 @@ body:has(.workspace-nav) .page { width: min(1180px, calc(100% - 296px)); margin:
 .manual-card { max-width: 720px; }
 .empty-state { margin: 22px 0 8px; min-height: 140px; display: grid; place-items: center; text-align: center; color: #526078; }
 @media (max-width: 1050px) { .query-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .workspace-nav { position: static; width: 100%; overflow: visible; }
+  .workspace-nav summary { display: list-item; padding: 12px 20px; font-weight: 700; cursor: pointer; }
+  .workspace-nav-inner { min-height: auto; padding: 10px 20px 22px; }
+  .workspace-brand { display: none; }
+  .workspace-nav-footer { display: none; }
+  body:has(.workspace-nav) .page.user-workspace { width: 100%; margin: 0; padding: 0 16px 20px; }
+  .workspace-head { margin: 0 -16px 20px; padding: 18px 20px; }
+}
 @media (max-width: 600px) {
-  .workspace-nav { position: static; width: 100%; padding: 8px 16px; overflow-x: hidden; }
-  .workspace-nav summary { display: list-item; cursor: pointer; padding: 8px 4px; font-weight: 700; }
-  .workspace-nav nav { padding: 8px 0; }
-  .workspace-nav .nav-label { display: none; }
-  body:has(.workspace-nav) .page { width: calc(100% - 24px); margin: 16px 12px; }
+  .workspace-head { flex-direction: column; align-items: stretch; min-height: auto; }
+  .workspace-head-actions { flex-wrap: wrap; }
   .dashboard-head, .section-head { align-items: stretch; flex-direction: column; }
   .query-form { grid-template-columns: minmax(0, 1fr); }
   .query-form > button { white-space: normal; }

@@ -156,3 +156,22 @@ def test_workspace_shows_gui_venue_choices_and_responsive_navigation(workspace):
     css = (Path(__file__).parents[2] / "jlu_booking/web/static/app.css").read_text()
     assert '@media (max-width: 600px)' in css
     assert 'overflow-x' in css
+
+
+def test_user_workspace_uses_gui_brand_and_keeps_admin_separate(workspace):
+    user_client, admin_client, _services = workspace
+    _login(user_client, "alice", "long password value")
+    _login(admin_client, "owner", "owner password value")
+
+    html = user_client.get("/").text
+    assert 'class="workspace-brand"' in html
+    assert "JILIN UNIVERSITY" in html
+    assert "服务场馆" in html
+    assert 'data-user-nav' in html and 'data-admin-nav' not in html
+    assert 'class="topbar"' not in html
+    assert 'class="workspace-head"' in html
+    assert 'action="/logout"' in html
+    assert 'href="/?venue=' in html
+    admin_html = admin_client.get("/admin").text
+    assert 'class="workspace-brand"' not in admin_html
+    assert 'class="topbar"' in admin_html

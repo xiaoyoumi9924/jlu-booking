@@ -13,6 +13,8 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from ..api import VENUES
+
 from .accounts import AccountService, ActiveUserLimitReached
 from .availability import AvailabilityService
 from .audit import AuditService, ReauthenticationService
@@ -127,6 +129,7 @@ def create_app(
     app.state.settings = settings
     app.state.services = selected
     app.state.templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
+    app.state.templates.env.globals["user_venues"] = VENUES
     app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
 
     @app.exception_handler(RateLimitExceeded)
