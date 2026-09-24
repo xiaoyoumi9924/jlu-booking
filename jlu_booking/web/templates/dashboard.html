@@ -1,47 +1,46 @@
 {% extends "user_shell.html" %}
 {% block title %}场地查询 · JLU 体育馆预约{% endblock %}
 {% block content %}
-<div class="dashboard-head">
-  <div><p class="eyebrow">体育馆 · 场地查询</p><h1>你好，{{ user.username }}</h1><p class="muted">下一执行日：{{ execution_date }} · 剩余自动任务名额：{{ remaining }}/10</p></div>
-  <a class="button" href="/tasks/new">创建一次性预约</a>
-</div>
-<section class="card query-card" aria-labelledby="query-heading">
-  <div class="section-head"><div><p class="eyebrow">实时场地数据</p><h2 id="query-heading">快速查询</h2></div><span class="badge">学校系统实时结果</span></div>
-  <div class="venue-choices" role="group" aria-label="选择场馆">{% for venue_name in venues %}<button class="secondary" type="button" data-set-venue="{{ venue_name }}" aria-pressed="{{ 'true' if venue_name == selected_venue else 'false' }}">{{ venue_name }}</button>{% endfor %}</div>
-  <form method="post" action="/availability/query" class="query-form">
+{% if daily_attention %}<p class="workspace-notice" role="status">每日自动预约：{{ daily_status }}。<a href="/daily-plan">查看设置</a></p>{% endif %}
+<section class="card query-card" aria-labelledby="query-heading" data-selected-venue="{{ selected_venue }}">
+  <div class="section-head"><h2 id="query-heading">快速查询</h2><span class="query-venue-badge" data-query-venue>{{ selected_venue }}</span></div>
+  <form method="post" action="/availability/query" class="query-form query-form-gui">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>场馆<select name="venue" data-venue-select>
+    <label class="query-fallback">场馆<select name="venue" data-venue-select>
       {% for venue_name in venues %}<option value="{{ venue_name }}" {% if venue_name == selected_venue %}selected{% endif %}>{{ venue_name }}</option>{% endfor %}
     </select></label>
-    <label>运动项目<select name="sport" data-sport-select>
-      {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}
-      <option value="{{ sport_name }}" data-venue="{{ venue_name }}" {% if venue_name == selected_venue and sport_name == selected_sport %}selected{% endif %}>{{ sport_name }}</option>
-      {% endfor %}{% endfor %}
-    </select></label>
-    <label>查询日期<select name="target_day">
-      <option value="today" {% if selected_day == 'today' %}selected{% endif %}>今天</option>
-      <option value="tomorrow" {% if selected_day == 'tomorrow' %}selected{% endif %}>明天</option>
-    </select></label>
-    <button type="submit">查询可预约场地</button>
+    <div class="query-choice-group"><span class="query-label">运动项目</span><div class="query-chips" role="group" aria-label="运动项目">
+      {% for sport_name in venues[selected_venue].sports %}<button type="button" class="query-chip" data-select-sport="{{ sport_name }}" aria-pressed="{{ 'true' if sport_name == selected_sport else 'false' }}">{{ sport_name }}</button>{% endfor %}
+    </div><label class="query-fallback">运动项目<select name="sport" data-sport-select>
+      {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" data-venue="{{ venue_name }}" {% if venue_name == selected_venue and sport_name == selected_sport %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}
+    </select></label></div>
+    <div class="query-choice-group"><span class="query-label">查询日期</span><div class="query-chips" role="group" aria-label="查询日期">
+      <button type="button" class="query-chip" data-select-day="today" aria-pressed="{{ 'true' if selected_day == 'today' else 'false' }}">今天 · {{ today_label }}</button>
+      <button type="button" class="query-chip" data-select-day="tomorrow" aria-pressed="{{ 'true' if selected_day == 'tomorrow' else 'false' }}">明天 · {{ tomorrow_label }}</button>
+    </div><label class="query-fallback">查询日期<select name="target_day" data-day-select>
+      <option value="today" {% if selected_day == 'today' %}selected{% endif %}>今天 · {{ today_label }}</option><option value="tomorrow" {% if selected_day == 'tomorrow' %}selected{% endif %}>明天 · {{ tomorrow_label }}</option>
+    </select></label></div>
+    <button class="query-submit" type="submit">查询可预约场地&nbsp; →</button>
   </form>
   {% if query_error %}<p class="error" role="alert">{{ query_error }}</p>{% endif %}
 </section>
-<div class="status-grid" {% if not availability_result %}data-dashboard-poll="15000"{% endif %}>
-  <section class="card"><h2>账号准备状态</h2><dl><dt>Token</dt><dd class="masked">{{ token_masked }}</dd><dt>同行人</dt><dd>{{ companion_text }}</dd></dl><a href="/profile">管理 Token 和同行人</a></section>
-  <section class="card"><h2>自动预约</h2>
-    <p>每日自动预约：<strong>{{ daily_status }}</strong> · <a href="/daily-plan">设置</a></p>
-    {% if active_task %}<p><span class="badge status-{{ active_task.status }}">{{ active_task.status }}</span></p><p>执行日期：{{ active_task.execution_date }}</p><a href="/tasks/{{ active_task.id }}">查看任务详情</a>
-    {% elif latest_task %}<p>最近结果：<span class="badge status-{{ latest_task.status }}">{{ latest_task.status }}</span></p><a href="/tasks/{{ latest_task.id }}">查看最近任务</a>
-    {% else %}<p class="muted">暂无预约任务。</p>{% endif %}
-  </section>
+
+<div class="query-summary" aria-label="查询摘要">
+  <section class="query-summary-item"><span class="summary-icon">项</span><div><span>场馆 / 项目</span><strong data-summary-sport>{% if availability_result %}{{ selected_venue }} · {{ selected_sport }}{% else %}未查询{% endif %}</strong></div></section>
+  <section class="query-summary-item"><span class="summary-icon">日</span><div><span>查询日期</span><strong data-summary-date>{{ availability_result.query_date if availability_result else '未查询' }}</strong></div></section>
+  <section class="query-summary-item" data-court-count="{{ court_count }}"><span class="summary-icon">馆</span><div><span>可预约场地</span><strong data-court-number>{{ court_count }}</strong></div></section>
+  <section class="query-summary-item" data-slot-count="{{ slot_count }}"><span class="summary-icon">时</span><div><span>可预约时段</span><strong data-slot-number>{{ slot_count }}</strong></div></section>
 </div>
+
 <section class="card results-card" data-query-results aria-live="polite">
-  <div class="section-head"><div><p class="eyebrow">{{ availability_result.venue if availability_result else '可预约场地' }}</p><h2>查询结果</h2></div>{% if availability_result %}<span class="badge">{{ availability_result.sport }} · {{ availability_result.query_date }}</span>{% endif %}</div>
+  <div class="results-head"><div><h2>可预约场地</h2><p>{{ '查询时间：' ~ availability_result.queried_at.strftime('%Y-%m-%d %H:%M:%S') ~ ' 北京时间' if availability_result else '查询后将在这里展示空闲时段' }}</p></div><div class="results-actions"><span class="results-status" data-results-status>{{ '查询完成' if availability_result else '准备就绪' }}</span><button type="button" class="results-clear" data-clear-results>清空结果</button></div></div>
+  <div class="results-body" data-results-body>
   {% if availability_result %}
-  <p class="muted">查询时间：{{ availability_result.queried_at.strftime('%Y-%m-%d %H:%M:%S') }} 北京时间</p>
-  {% if grouped_slots %}<div class="court-grid">{% for court_name, slots in grouped_slots.items() %}
-    <section class="court-card"><h3>{{ court_name }}</h3><ul class="slot-list">{% for slot in slots %}<li data-court-id="{{ slot.court_id }}" data-place-short-name="{{ slot.place_short_name }}" data-slot-start="{{ slot.start }}" data-slot-end="{{ slot.end }}"><span><time>{{ slot.start }}</time>–<time>{{ slot.end }}</time></span><form method="post" action="/manual/precheck"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="candidate_id" value="{{ slot.candidate_id }}"><button type="submit" class="mini">检查此时段</button></form></li>{% endfor %}</ul></section>
-  {% endfor %}</div>{% else %}<p class="empty-state">当前没有可预约时段。</p>{% endif %}
-  {% else %}<p class="empty-state">选择运动项目和日期，点击查询即可查看空闲场地与时段。</p>{% endif %}
+    {% if grouped_slots %}<div class="court-grid">{% for court_name, slots in grouped_slots.items() %}
+      <section class="court-card"><h3>{{ court_name }}</h3><ul class="slot-list">{% for slot in slots %}<li data-court-id="{{ slot.court_id }}" data-place-short-name="{{ slot.place_short_name }}" data-slot-start="{{ slot.start }}" data-slot-end="{{ slot.end }}"><span><time>{{ slot.start }}</time>–<time>{{ slot.end }}</time></span><form method="post" action="/manual/precheck"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="candidate_id" value="{{ slot.candidate_id }}"><button type="submit" class="mini">检查此时段</button></form></li>{% endfor %}</ul></section>
+    {% endfor %}</div>{% else %}<p class="empty-state"><span class="empty-symbol">◎</span><strong>当前没有可预约时段</strong><span>可以切换项目或日期后重新查询</span></p>{% endif %}
+  {% else %}<p class="empty-state"><span class="empty-symbol">◎</span><strong>等待查询</strong><span>选择运动项目和日期，点击查询即可查看可预约时段</span></p>{% endif %}
+  </div>
 </section>
+<footer class="workspace-content-footer"><span>场地数据以学校系统为准</span><span>JLU VENUE · 场地查询与预约</span></footer>
 {% endblock %}

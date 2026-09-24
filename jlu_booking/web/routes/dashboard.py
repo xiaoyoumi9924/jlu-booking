@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
@@ -13,7 +15,7 @@ from ..security import mask_secret
 router = APIRouter()
 
 
-def dashboard_context(request, session, user, *, result=None, error=None):
+def dashboard_context(request, session, user, *, result=None, error=None, selection=None):
     services = request.app.state.services
     now = now_beijing()
     execution_date = services.tasks.next_execution_date(now)
@@ -35,6 +37,7 @@ def dashboard_context(request, session, user, *, result=None, error=None):
     latest_task = services.tasks._record(latest_row) if latest_row else None
     daily_plan = services.daily_plans.get_for_user(user.id)
     daily_status = "未开启"
+    daily_attention = False
     if daily_plan:
         blocking_reason = services.daily_plans.blocking_reason(daily_plan, execution_date)
         running_row = services.connection.execute(
@@ -49,10 +52,12 @@ def dashboard_context(request, session, user, *, result=None, error=None):
         ).fetchone()
         if running_row:
             daily_status = "运行中" if daily_plan.enabled else "已关闭；当前任务仍在运行"
+            daily_attention = not daily_plan.enabled
         elif not daily_plan.enabled:
             daily_status = "未开启"
         elif blocking_reason:
             daily_status = blocking_reason
+            daily_attention = True
         elif daily_row and daily_row["status"] == "scheduled":
             daily_status = "已排程"
         elif daily_row and daily_row["status"] == "running":
@@ -77,8 +82,20 @@ def dashboard_context(request, session, user, *, result=None, error=None):
             key=lambda item: (str(item["court_name"]), str(item["start"])),
         ):
             grouped_slots.setdefault(str(slot["court_name"]), []).append(slot)
-    selected_venue = result.venue if result else next(iter(VENUES))
-    selected_sport = result.sport if result else next(iter(VENUES[selected_venue]["sports"]))
+    requested_venue = selection[0] if selection else request.query_params.get("venue")
+    selected_venue = result.venue if result else (
+        requested_venue if requested_venue in VENUES else next(iter(VENUES))
+    )
+    requested_sport = selection[1] if selection else None
+    available_sports = VENUES[selected_venue]["sports"]
+    selected_sport = result.sport if result else (
+        requested_sport if requested_sport in available_sports else next(iter(available_sports))
+    )
+    requested_day = selection[2] if selection else None
+    selected_day = (
+        "tomorrow" if result and result.query_date == (now.date() + timedelta(days=1)).isoformat()
+        else "today" if result else requested_day if requested_day in {"today", "tomorrow"} else "today"
+    )
     return {
         "user": user,
         "csrf_token": session.csrf_token,
@@ -87,6 +104,7 @@ def dashboard_context(request, session, user, *, result=None, error=None):
         "active_task": active_task,
         "latest_task": latest_task,
         "daily_status": daily_status,
+        "daily_attention": daily_attention,
         "token_masked": token_masked,
         "companion_text": companion_text,
         "venues": VENUES,
@@ -95,7 +113,11 @@ def dashboard_context(request, session, user, *, result=None, error=None):
         "grouped_slots": grouped_slots,
         "selected_venue": selected_venue,
         "selected_sport": selected_sport,
-        "selected_day": "today" if result is None or result.query_date == now.date().isoformat() else "tomorrow",
+        "selected_day": selected_day,
+        "today_label": now.date().strftime("%m月%d日"),
+        "tomorrow_label": (now.date() + timedelta(days=1)).strftime("%m月%d日"),
+        "court_count": len(grouped_slots),
+        "slot_count": len(result.slots) if result else 0,
     }
 
 

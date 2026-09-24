@@ -175,3 +175,24 @@ def test_user_workspace_uses_gui_brand_and_keeps_admin_separate(workspace):
     admin_html = admin_client.get("/admin").text
     assert 'class="workspace-brand"' not in admin_html
     assert 'class="topbar"' in admin_html
+
+
+def test_venue_link_reloads_matching_sport_choices(workspace):
+    user_client, _admin_client, _services = workspace
+    _login(user_client, "alice", "long password value")
+
+    second = user_client.get("/?venue=宋治平体育馆")
+    assert second.status_code == 200
+    assert 'data-selected-venue="宋治平体育馆"' in second.text
+    assert 'data-select-sport="排球"' in second.text
+    assert 'data-select-sport="羽毛球"' not in second.text
+    assert 'name="venue"' in second.text
+    assert 'name="sport"' in second.text
+    assert 'name="target_day"' in second.text
+    assert 'data-select-day="today"' in second.text
+    assert 'data-select-day="tomorrow"' in second.text
+    assert 'data-clear-results' in second.text
+
+    invalid = user_client.get("/?venue=invalid")
+    assert invalid.status_code == 200
+    assert 'data-selected-venue="前卫体育馆"' in invalid.text

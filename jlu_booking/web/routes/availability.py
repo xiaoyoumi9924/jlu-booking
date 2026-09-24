@@ -58,6 +58,9 @@ async def query_availability(
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="dashboard.html",
-        context=dashboard_context(request, session, user, result=result, error=error),
+        context=dashboard_context(
+            request, session, user, result=result, error=error,
+            selection=(venue, sport, target_day),
+        ),
         status_code=status,
     )

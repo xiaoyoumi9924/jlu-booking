@@ -1,4 +1,5 @@
 "use strict";
+document.documentElement.classList.add("js-ready");
 window.JLUBooking = Object.freeze({
   isPageVisible: () => document.visibilityState === "visible",
   setText: (element, value) => { if (element) element.textContent = String(value); }
@@ -106,6 +107,10 @@ for (const venueSelect of document.querySelectorAll("[data-venue-select]")) {
       option.disabled = option.hidden;
     }
     if (!compatible.some((option) => option.selected) && compatible.length) compatible[0].selected = true;
+    for (const chip of venueSelect.form.querySelectorAll("[data-select-sport]")) {
+      chip.hidden = !compatible.some((option) => option.value === chip.dataset.selectSport);
+      chip.setAttribute("aria-pressed", String(chip.dataset.selectSport === sportSelect.value));
+    }
     for (const button of document.querySelectorAll("[data-set-venue]")) {
       button.setAttribute("aria-pressed", String(button.dataset.setVenue === venueSelect.value));
     }
@@ -121,4 +126,47 @@ for (const venueSelect of document.querySelectorAll("[data-venue-select]")) {
     });
   }
   syncSports();
+}
+
+const sportSelect = document.querySelector("[data-sport-select]");
+const daySelect = document.querySelector("[data-day-select]");
+for (const chip of document.querySelectorAll("[data-select-sport]")) {
+  chip.addEventListener("click", () => {
+    if (!sportSelect) return;
+    sportSelect.value = chip.dataset.selectSport;
+    for (const peer of document.querySelectorAll("[data-select-sport]")) {
+      peer.setAttribute("aria-pressed", String(peer === chip));
+    }
+  });
+}
+for (const chip of document.querySelectorAll("[data-select-day]")) {
+  chip.addEventListener("click", () => {
+    if (!daySelect) return;
+    daySelect.value = chip.dataset.selectDay;
+    for (const peer of document.querySelectorAll("[data-select-day]")) {
+      peer.setAttribute("aria-pressed", String(peer === chip));
+    }
+  });
+}
+for (const button of document.querySelectorAll("[data-clear-results]")) {
+  button.addEventListener("click", () => {
+    const body = document.querySelector("[data-results-body]");
+    if (body) {
+      body.replaceChildren();
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      const icon = document.createElement("span"); icon.className = "empty-symbol"; icon.textContent = "◎";
+      const heading = document.createElement("strong"); heading.textContent = "等待查询";
+      const hint = document.createElement("span"); hint.textContent = "选择运动项目和日期，点击查询即可查看可预约时段";
+      empty.append(icon, heading, hint);
+      body.append(empty);
+    }
+    for (const key of ["sport", "date"]) window.JLUBooking.setText(document.querySelector(`[data-summary-${key}]`), "未查询");
+    for (const key of ["court", "slot"]) {
+      const count = document.querySelector(`[data-${key}-count]`);
+      if (count) count.dataset[`${key}Count`] = "0";
+      window.JLUBooking.setText(document.querySelector(`[data-${key}-number]`), 0);
+    }
+    window.JLUBooking.setText(document.querySelector("[data-results-status]"), "准备就绪");
+  });
 }

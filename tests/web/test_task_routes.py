@@ -123,7 +123,7 @@ def test_dashboard_and_create_show_exact_dates(web):
     _login(client, "alice")
     dashboard = client.get("/")
     assert dashboard.status_code == 200
-    assert "2026-09-22" in dashboard.text
+    assert "今天 · 09月22日" in dashboard.text
     form = client.get("/tasks/new")
     assert "2026-09-22" in form.text
     assert "data-priority-up" in form.text

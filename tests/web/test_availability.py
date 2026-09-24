@@ -109,6 +109,40 @@ def test_query_endpoint_requires_owned_session_and_csrf(web):
     assert "token-alice" not in response.text
 
 
+def test_query_summary_counts_only_current_result(web, monkeypatch):
+    from jlu_booking.web.availability import AvailabilityResult
+
+    client, services = web
+    _login(client, "alice")
+    slots = (
+        {"court_name": "1号场", "place_short_name": "ymq1", "start": "15:30", "end": "17:30"},
+        {"court_name": "1号场", "place_short_name": "ymq1", "start": "17:30", "end": "19:30"},
+        {"court_name": "2号场", "place_short_name": "ymq2", "start": "15:30", "end": "17:30"},
+    )
+    result = AvailabilityResult("前卫体育馆", "羽毛球", "2026-09-23", NOW, slots)
+    monkeypatch.setattr(services.availability, "query", lambda *_args: result)
+    form = {
+        "csrf_token": _csrf(client.get("/")), "venue": "前卫体育馆",
+        "sport": "羽毛球", "target_day": "today",
+    }
+
+    success = client.post("/availability/query", data=form)
+    assert success.status_code == 200
+    assert 'data-court-count="2"' in success.text
+    assert 'data-slot-count="3"' in success.text
+    assert success.text.count('action="/manual/precheck"') == 3
+
+    def reject(*_args):
+        raise ValueError("query failed")
+
+    monkeypatch.setattr(services.availability, "query", reject)
+    failed = client.post("/availability/query", data=form)
+    assert failed.status_code == 400
+    assert 'data-court-count="0"' in failed.text
+    assert 'data-slot-count="0"' in failed.text
+    assert 'action="/manual/precheck"' not in failed.text
+
+
 def test_service_queries_beijing_date_and_keeps_tokens_separate(web):
     from jlu_booking.web.availability import AvailabilityService
 
