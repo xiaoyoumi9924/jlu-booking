@@ -16,22 +16,19 @@
         <span class="workspace-nav-icon">查</span><span><strong>场地查询</strong><small>查看空闲场地与时段</small></span>
       </a>
       <a class="workspace-nav-card{% if active_path.startswith('/tasks') %} is-active{% endif %}" href="/tasks/new" {% if active_path.startswith('/tasks') %}aria-current="page"{% endif %}>
-        <span class="workspace-nav-icon">约</span><span><strong>自动预约</strong><small>配置、启动与查看状态</small></span>
+        <span class="workspace-nav-icon">启</span><span><strong>启动预约</strong><small>创建一次性预约任务</small></span>
       </a>
       <a class="workspace-nav-card{% if active_path.startswith('/daily-plan') %} is-active{% endif %}" href="/daily-plan" {% if active_path.startswith('/daily-plan') %}aria-current="page"{% endif %}>
-        <span class="workspace-nav-icon">日</span><span><strong>每日自动预约</strong><small>设置每日执行与开关</small></span>
+        <span class="workspace-nav-icon">日</span><span><strong>自动预约</strong><small>设置每日执行与开关</small></span>
       </a>
       <a class="workspace-nav-card{% if active_path.startswith('/profile') or active_path == '/change-password' %} is-active{% endif %}" href="/profile" {% if active_path.startswith('/profile') or active_path == '/change-password' %}aria-current="page"{% endif %}>
         <span class="workspace-nav-icon">我</span><span><strong>个人中心</strong><small>凭据与预约记录</small></span>
       </a>
     </nav>
-    <div class="workspace-nav-footer"><strong>求实创新 · 励志图强</strong><span>场地数据以学校系统为准</span></div>
+    <div class="workspace-nav-footer">
+      <div class="workspace-account"><span>{{ user.username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">退出登录</button></form></div>
+      <div class="workspace-motto"><strong>求实创新 · 励志图强</strong><span>场地数据以学校系统为准</span></div>
+    </div>
   </div>
 </details>
-{% endblock %}
-{% block content_header %}
-<header class="workspace-head">
-  <div><p class="workspace-kicker">{% block workspace_kicker %}体育场馆{% endblock %}</p><h1>{% block workspace_title %}场地预约查询{% endblock %}</h1></div>
-  <div class="workspace-head-actions"><span class="workspace-ready">● 页面已就绪</span><span class="workspace-user">{{ user.username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="workspace-logout">退出</button></form></div>
-</header>
 {% endblock %}

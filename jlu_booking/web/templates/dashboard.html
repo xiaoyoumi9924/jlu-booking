@@ -3,7 +3,7 @@
 {% block content %}
 {% if daily_attention %}<p class="workspace-notice" role="status">每日自动预约：{{ daily_status }}。<a href="/daily-plan">查看设置</a></p>{% endif %}
 <section class="card query-card" aria-labelledby="query-heading" data-selected-venue="{{ selected_venue }}">
-  <div class="section-head"><h2 id="query-heading">快速查询</h2><span class="query-venue-badge" data-query-venue>{{ selected_venue }}</span></div>
+  <div class="section-head"><h1 id="query-heading">快速查询</h1><span class="query-venue-badge" data-query-venue>{{ selected_venue }}</span></div>
   <div class="query-venue-choices" role="group" aria-label="选择场馆"><span class="query-label">场馆</span><div class="query-chips query-venue-links">
     {% for venue_name in venues %}<a class="query-chip{% if venue_name == selected_venue %} is-selected{% endif %}" href="/?venue={{ venue_name|urlencode }}" {% if venue_name == selected_venue %}aria-current="true"{% endif %}>{{ venue_name }}</a>{% endfor %}
   </div></div>
@@ -40,7 +40,7 @@
   <div class="results-body" data-results-body>
   {% if availability_result %}
     {% if grouped_slots %}<div class="court-grid">{% for court_name, slots in grouped_slots.items() %}
-      <section class="court-card"><h3>{{ court_name }}</h3><ul class="slot-list">{% for slot in slots %}<li data-court-id="{{ slot.court_id }}" data-place-short-name="{{ slot.place_short_name }}" data-slot-start="{{ slot.start }}" data-slot-end="{{ slot.end }}"><span><time>{{ slot.start }}</time>–<time>{{ slot.end }}</time></span><form method="post" action="/manual/precheck"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="candidate_id" value="{{ slot.candidate_id }}"><button type="submit" class="mini">检查此时段</button></form></li>{% endfor %}</ul></section>
+      <section class="court-card"><h3>{{ court_name }}</h3><ul class="slot-list">{% for slot in slots %}<li data-court-id="{{ slot.court_id }}" data-place-short-name="{{ slot.place_short_name }}" data-slot-start="{{ slot.start }}" data-slot-end="{{ slot.end }}"><form method="post" action="/manual/precheck"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="candidate_id" value="{{ slot.candidate_id }}"><button type="submit" class="slot-select" aria-label="选择 {{ court_name }} {{ slot.start }} 至 {{ slot.end }}，继续手动预约"><span><time>{{ slot.start }}</time>–<time>{{ slot.end }}</time></span><span aria-hidden="true">↗</span></button></form></li>{% endfor %}</ul></section>
     {% endfor %}</div>{% else %}<p class="empty-state"><span class="empty-symbol">◎</span><strong>当前没有可预约时段</strong><span>可以切换项目或日期后重新查询</span></p>{% endif %}
   {% else %}<p class="empty-state"><span class="empty-symbol">◎</span><strong>等待查询</strong><span>选择运动项目和日期，点击查询即可查看可预约时段</span></p>{% endif %}
   </div>

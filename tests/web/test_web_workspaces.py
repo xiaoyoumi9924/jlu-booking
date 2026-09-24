@@ -175,7 +175,11 @@ def test_user_workspace_uses_gui_brand_and_keeps_admin_separate(workspace):
         assert href in nav
     assert 'data-user-nav' in html and 'data-admin-nav' not in html
     assert 'class="topbar"' not in html
-    assert 'class="workspace-head"' in html
+    assert 'class="workspace-head"' not in html
+    assert "页面已就绪" not in html
+    assert nav.index("场地查询") < nav.index("启动预约") < nav.index("自动预约") < nav.index("个人中心")
+    assert 'class="workspace-nav-footer"' in html
+    assert html.index('class="workspace-nav-footer"') > html.index('</nav>')
     assert 'action="/logout"' in html
     admin_html = admin_client.get("/admin").text
     assert 'class="workspace-brand"' not in admin_html
@@ -204,26 +208,43 @@ def test_venue_link_reloads_matching_sport_choices(workspace):
     assert 'data-selected-venue="前卫体育馆"' in invalid.text
 
 
-def test_user_pages_share_gui_shell_with_distinct_page_titles(workspace):
+def test_user_pages_use_compact_headings_and_distinct_destinations(workspace):
     user_client, admin_client, _services = workspace
     _login(user_client, "alice", "long password value")
     _login(admin_client, "owner", "owner password value")
     for path, title, form_action in (
-        ("/", "场地预约查询", "/availability/query"),
-        ("/tasks/new", "自动预约", "/tasks/new"),
-        ("/daily-plan", "每日自动预约", "/daily-plan"),
+        ("/", "快速查询", "/availability/query"),
+        ("/tasks/new", "启动一次预约", "/tasks/new"),
+        ("/daily-plan", "自动预约", "/daily-plan"),
         ("/profile", "个人中心", "/profile/token"),
     ):
         page = user_client.get(path)
         assert page.status_code == 200
-        assert 'class="workspace-head"' in page.text
-        assert f"<h1>{title}</h1>" in page.text
+        assert 'class="workspace-head"' not in page.text
+        assert re.search(rf"<h1(?: [^>]*)?>{title}</h1>", page.text)
         assert 'href="/profile"' in page.text
         assert f'action="{form_action}"' in page.text
         assert 'data-user-nav' in page.text
     admin = admin_client.get("/admin")
     assert 'data-admin-nav' in admin.text
     assert 'data-user-nav' not in admin.text
+
+
+def test_personal_center_groups_credentials_security_and_history(workspace):
+    user_client, _admin_client, _services = workspace
+    _login(user_client, "alice", "long password value")
+
+    page = user_client.get("/profile")
+    assert page.status_code == 200
+    assert 'class="profile-identity"' not in page.text
+    assert 'class="profile-cards"' not in page.text
+    assert 'class="profile-settings"' in page.text
+    assert 'class="profile-security"' in page.text
+    assert 'class="profile-history"' in page.text
+    assert 'action="/profile/token"' in page.text
+    assert 'action="/profile/companion"' in page.text
+    assert 'href="/change-password"' in page.text
+    assert "alice-private-token" not in page.text
 
 
 def test_personal_center_shows_only_owned_booking_history_and_missing_log(workspace):
@@ -333,7 +354,7 @@ def test_auto_booking_form_uses_gui_panel_without_changing_submission_fields(wor
     assert 'name="mode"' in html
     assert 'action="/tasks/new"' in html
     assert "重点时间（从上到下优先）" in html
-    assert "保存预约任务" in html
+    assert "保存并启动" in html
     assert "立即启动" not in html
 
 
@@ -354,8 +375,9 @@ def test_personal_center_separates_credentials_and_owned_history(workspace):
     client, _admin_client, _services = workspace
     _login(client, "alice", "long password value")
     html = client.get("/profile").text
-    assert 'class="profile-identity"' in html
-    assert "凭据管理" in html
+    assert 'class="profile-settings"' in html
+    assert 'class="profile-security"' in html
+    assert 'class="profile-history"' in html
     assert 'action="/profile/token"' in html
     assert 'action="/profile/companion"' in html
     assert "我的预约记录" in html

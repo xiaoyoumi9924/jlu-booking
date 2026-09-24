@@ -1,8 +1,7 @@
 {% extends "user_shell.html" %}
-{% block title %}每日自动预约 · JLU 体育馆预约{% endblock %}
-{% block workspace_kicker %}定期任务{% endblock %}
-{% block workspace_title %}每日自动预约{% endblock %}
+{% block title %}自动预约 · JLU 体育馆预约{% endblock %}
 {% block content %}
+<div class="daily-page-intro"><p class="eyebrow">每日任务</p><h1>自动预约</h1><p>保存每天使用的预约方案，再按需开启或关闭自动执行。</p></div>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <section class="daily-status-panel" data-execution-date="{{ execution_date }}" aria-labelledby="daily-status-heading">
   <div class="daily-status-main"><p class="eyebrow">每日执行状态</p><h2 id="daily-status-heading">{{ status_text }}</h2><p>先保存配置，再开启每日执行。开启后按开启时间先到先得分配当日名额。</p></div>
@@ -19,7 +18,7 @@
   <div class="daily-status-facts"><div><span>下一执行日</span><strong>{{ execution_date }} · 07:27 北京时间</strong></div><div><span>预约目标日</span><strong data-target-date>{{ target_date }}</strong></div><div><span>当前任务</span><strong>{% if task %}<a href="/tasks/{{ task.id }}">查看任务 · {{ task.status }}</a>{% else %}暂无{% endif %}</strong></div></div>
 </section>
 <p class="daily-guidance">关闭开关会取消尚未开始的每日任务；已运行的任务仍需到任务详情查看结果。</p>
-<div class="booking-page-intro"><div><p class="eyebrow">每日预约方案</p><h2>配置预约偏好</h2><p>以下设置仅在保存并开启后用于每天的自动任务。</p></div><a class="button secondary" href="/tasks/new">创建一次性预约</a></div>
+<div class="booking-page-intro"><div><p class="eyebrow">每日预约方案</p><h2>配置预约偏好</h2><p>以下设置仅在保存并开启后用于每天的自动任务。</p></div></div>
 <section class="booking-panel" aria-label="每日预约配置">
   <form method="post" action="/daily-plan" data-booking-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

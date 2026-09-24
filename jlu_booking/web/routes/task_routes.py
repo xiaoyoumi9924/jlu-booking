@@ -71,6 +71,13 @@ def _draft(user, request, target_day, venue, sport, preferred, priority, mode):
     )
 
 
+async def _validate_companion_input(request: Request, user_id: int, student_number: str, now) -> None:
+    if student_number.strip():
+        await request.app.state.services.credentials.save_companion_async(
+            user_id, student_number, now=now
+        )
+
+
 def _form_context(request, session, user, *, task=None, error=None):
     now = now_beijing()
     execution_date = task.execution_date if task else request.app.state.services.tasks.next_execution_date(now)
@@ -121,6 +128,7 @@ async def create_task(
     preferred_court_number: str = Form(...),
     priority: list[str] = Form(...),
     mode: str = Form("scan"),
+    student_number: str = Form(""),
     csrf_token: str = Form(""),
 ):
     session, user, redirect = require_active_user(request)
@@ -130,6 +138,7 @@ async def create_task(
     now = now_beijing()
     _mutate_allowed(request, user.id, now)
     try:
+        await _validate_companion_input(request, user.id, student_number, now)
         task = request.app.state.services.tasks.create(
             user.id,
             _draft(user, request, target_day, venue, sport, preferred_court_number, priority, mode),
@@ -137,7 +146,7 @@ async def create_task(
         )
     except sqlite3.OperationalError:
         return HTMLResponse("数据库暂时繁忙，请稍后重试。", status_code=503)
-    except (TaskError, ValueError) as exc:
+    except (TaskError, CredentialError, ValueError) as exc:
         return _render_form(request, session, user, error=str(exc), status=400)
     return RedirectResponse(f"/tasks/{task.id}", 303)
 
@@ -188,6 +197,7 @@ async def edit_task(
     preferred_court_number: str = Form(...),
     priority: list[str] = Form(...),
     mode: str = Form("scan"),
+    student_number: str = Form(""),
     csrf_token: str = Form(""),
 ):
     session, user, redirect = require_active_user(request)
@@ -198,6 +208,13 @@ async def edit_task(
     now = now_beijing()
     _mutate_allowed(request, user.id, now)
     try:
+        request.app.state.services.tasks._require_before_cutoff(task, now)
+        if task.status != "scheduled":
+            raise TaskFrozen("任务已冻结。")
+    except TaskFrozen as exc:
+        return HTMLResponse(str(exc), status_code=423)
+    try:
+        await _validate_companion_input(request, user.id, student_number, now)
         request.app.state.services.tasks.update(
             user.id, task_id,
             _draft(user, request, target_day, venue, sport, preferred_court_number, priority, mode),
@@ -205,7 +222,7 @@ async def edit_task(
         )
     except sqlite3.OperationalError:
         return HTMLResponse("数据库暂时繁忙，请稍后重试。", status_code=503)
-    except (TaskError, ValueError) as exc:
+    except (TaskError, CredentialError, ValueError) as exc:
         return _render_form(request, session, user, task=task, error=str(exc), status=400)
     return RedirectResponse(f"/tasks/{task_id}", 303)
 

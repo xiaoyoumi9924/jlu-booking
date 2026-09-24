@@ -1,25 +1,33 @@
 {% extends "user_shell.html" %}
 {% block title %}个人中心 · JLU 体育馆预约{% endblock %}
-{% block workspace_kicker %}账号与记录{% endblock %}
-{% block workspace_title %}个人中心{% endblock %}
 {% block content %}
-<section class="profile-identity"><div><p class="eyebrow">我的账号</p><h2>{{ user.username }}</h2><p>在这里管理预约凭据，并查看此网页账号的预约记录。</p></div><div class="profile-readiness"><span class="{{ 'is-ready' if masked_token != '未绑定' else '' }}">Token {{ '已绑定' if masked_token != '未绑定' else '未绑定' }}</span><span class="{{ 'is-ready' if companion_name else '' }}">同行人 {{ '已验证' if companion_name else '未验证' }}</span></div></section>
+<div class="profile-intro"><div><p class="eyebrow">账号与记录</p><h1>个人中心</h1><p>管理预约所需的信息，查看此网页账号的预约记录。</p></div><span class="profile-username">{{ user.username }}</span></div>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-<div class="profile-section-title"><p class="eyebrow">凭据管理</p><h2>预约前的准备</h2><p>Token 与同行人仅供当前网页账号使用，页面默认只显示脱敏信息。</p></div>
-<div class="profile-cards">
-  <section class="profile-card" aria-labelledby="profile-token-heading"><div class="profile-card-head"><span class="profile-card-icon">令</span><div><h3 id="profile-token-heading">JLU Token</h3><p>用于查询与提交预约</p></div></div><p class="profile-current"><span>当前状态</span><strong class="masked">{{ masked_token }}</strong></p><form method="post" action="/profile/token"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>更新 Token<input type="password" name="token" autocomplete="off" required placeholder="输入新的 JLU Token"></label><button type="submit">验证并替换</button></form></section>
-  <section class="profile-card" aria-labelledby="profile-companion-heading"><div class="profile-card-head"><span class="profile-card-icon">同</span><div><h3 id="profile-companion-heading">同行人</h3><p>预约时使用已验证的同行人</p></div></div><p class="profile-current"><span>当前状态</span><strong>{% if companion_name %}{{ companion_name }} · {{ masked_companion }}{% else %}尚未验证{% endif %}</strong></p><form method="post" action="/profile/companion"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>同行人学工号<input name="student_number" autocomplete="off" required placeholder="输入同行人学工号"></label><button type="submit">验证并保存</button></form></section>
-  <section class="profile-card profile-security" aria-labelledby="profile-security-heading"><div class="profile-card-head"><span class="profile-card-icon">安</span><div><h3 id="profile-security-heading">账号安全</h3><p>定期更新网页登录密码</p></div></div><p class="profile-current"><span>登录账号</span><strong>{{ user.username }}</strong></p><a class="button secondary" href="/change-password">修改密码</a></section>
+<div class="profile-layout">
+  <section class="profile-settings" aria-labelledby="profile-settings-heading">
+    <div class="profile-panel-heading"><p class="eyebrow">预约准备</p><h2 id="profile-settings-heading">学校账号信息</h2><p>Token 与同行人仅供当前网页账号使用。</p></div>
+    <div class="profile-setting">
+      <div class="profile-setting-summary"><div><h3>JLU Token</h3><p>用于查询场地和提交预约</p></div><span class="profile-state {{ 'is-ready' if masked_token != '未绑定' else '' }}">{{ '已绑定' if masked_token != '未绑定' else '未绑定' }}</span></div>
+      <p class="profile-setting-value masked">{{ masked_token }}</p>
+      <details class="profile-edit"><summary>更新 Token</summary><form method="post" action="/profile/token"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>新的 JLU Token<input type="password" name="token" autocomplete="off" required placeholder="输入新的 JLU Token"></label><button type="submit">验证并替换</button></form></details>
+    </div>
+    <div class="profile-setting">
+      <div class="profile-setting-summary"><div><h3>同行人</h3><p>预约时使用已验证的同行人</p></div><span class="profile-state {{ 'is-ready' if companion_name else '' }}">{{ '已验证' if companion_name else '未验证' }}</span></div>
+      <p class="profile-setting-value">{% if companion_name %}{{ companion_name }} · {{ masked_companion }}{% else %}尚未验证同行人{% endif %}</p>
+      <details class="profile-edit"><summary>{{ '更换同行人' if companion_name else '验证同行人' }}</summary><form method="post" action="/profile/companion"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>同行人学工号<input name="student_number" autocomplete="off" required placeholder="输入同行人学工号"></label><button type="submit">验证并保存</button></form></details>
+    </div>
+  </section>
+  <aside class="profile-security" aria-labelledby="profile-security-heading"><p class="eyebrow">账号安全</p><h2 id="profile-security-heading">网页登录</h2><dl><dt>登录账号</dt><dd>{{ user.username }}</dd></dl><a class="button secondary" href="/change-password">修改登录密码</a></aside>
 </div>
-<section class="card workspace-info-card profile-history" aria-labelledby="history-heading">
-  <div class="section-head"><div><p class="eyebrow">预约记录</p><h2 id="history-heading">我的预约记录</h2><p class="muted">仅显示此网页账号的自动与手动预约；点击记录查看状态或运行日志。</p></div></div>
+<section class="profile-history" aria-labelledby="history-heading">
+  <div class="profile-panel-heading"><p class="eyebrow">预约记录</p><h2 id="history-heading">我的预约记录</h2><p>仅显示此网页账号的自动与手动预约；点击记录查看状态或运行日志。</p></div>
   {% if history_page.items %}
   <div class="table-wrap"><table><thead><tr><th>时间</th><th>方式</th><th>目标日期</th><th>场馆 / 项目</th><th>状态</th><th>操作</th></tr></thead><tbody>
     {% for item in history_page.items %}
     <tr><td>{{ item.occurred_at[:16] | replace('T', ' ') }}</td><td>{{ history_source_labels.get(item.source, item.source) }}</td><td>{{ item.target_date }}</td><td>{{ item.venue }} · {{ item.sport }}</td><td><span class="badge status-{{ item.status }}">{{ history_status_labels.get(item.status, item.status) }}</span></td><td><a href="{{ '/tasks/' ~ item.record_id if item.kind == 'auto' else '/manual/result/' ~ item.record_id }}">查看详情</a></td></tr>
     {% endfor %}
   </tbody></table></div>
-  {% else %}<p class="empty-state"><strong>暂无预约记录</strong><span>此网页账号创建的预约任务与已提交的手动预约会显示在这里。</span></p>{% endif %}
+  {% else %}<p class="profile-history-empty"><strong>暂无预约记录</strong><span>预约任务和手动预约记录会显示在这里。</span></p>{% endif %}
   {% if history_page.page > 1 or history_page.has_next %}<nav class="history-pages" aria-label="预约记录分页">
     {% if history_page.page > 1 %}<a href="/profile?page={{ history_page.page - 1 }}">上一页</a>{% endif %}
     <span>第 {{ history_page.page }} 页</span>

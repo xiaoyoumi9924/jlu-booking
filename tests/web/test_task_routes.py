@@ -144,6 +144,62 @@ def test_dashboard_and_create_show_exact_dates(web):
     assert "2026-09-23" in detail.text
 
 
+def test_one_time_task_accepts_and_validates_companion_in_its_own_form(web):
+    client, services, _ = web
+    user = services.accounts.register_pending(
+        "new-user", "long password value", source_ip="new-user", now=NOW
+    )
+    services.credentials.activate_user(user.id, "private-token", now=NOW)
+    _login(client, "new-user")
+    form = client.get("/tasks/new")
+    assert 'name="student_number"' in form.text
+    assert "保存任务前会向学校系统验证同行人" in form.text
+
+    response = client.post(
+        "/tasks/new",
+        data=_task_data(_csrf(form), student_number="20260009"),
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    companion = services.credentials.decrypt_companion(user.id)
+    assert companion.student_number == "20260009"
+    task = services.tasks.get_for_user(user.id, int(response.headers["location"].split("/")[-1]))
+    assert task.companion_id == companion.id
+
+
+def test_one_time_task_without_verified_companion_returns_form_error(web):
+    client, services, _ = web
+    user = services.accounts.register_pending(
+        "new-user", "long password value", source_ip="new-user", now=NOW
+    )
+    services.credentials.activate_user(user.id, "private-token", now=NOW)
+    _login(client, "new-user")
+    form = client.get("/tasks/new")
+    response = client.post("/tasks/new", data=_task_data(_csrf(form)))
+    assert response.status_code == 400
+    assert "同行人" in response.text
+
+
+def test_one_time_task_does_not_save_unverified_companion(web):
+    client, services, _ = web
+    user = services.accounts.register_pending(
+        "new-user", "long password value", source_ip="new-user", now=NOW
+    )
+    services.credentials.activate_user(user.id, "private-token", now=NOW)
+    services.credentials._companion_validator = lambda _number, _token: {}
+    _login(client, "new-user")
+    form = client.get("/tasks/new")
+    response = client.post(
+        "/tasks/new",
+        data=_task_data(_csrf(form), student_number="invalid"),
+    )
+    assert response.status_code == 400
+    assert "同行人验证失败" in response.text
+    assert services.connection.execute(
+        "SELECT COUNT(*) FROM booking_tasks WHERE user_id = ?", (user.id,)
+    ).fetchone()[0] == 0
+
+
 def test_edit_and_cancel_complete_flow(web):
     client, services, _ = web
     user, companion = _create_active_user(services, "alice", token="private-token")
@@ -262,3 +318,10 @@ def test_task_is_locked_at_exact_0727(web, monkeypatch):
     _login(client, "alice")
     edit = client.get(f"/tasks/{task.id}/edit")
     assert edit.status_code == 423
+    detail = client.get(f"/tasks/{task.id}")
+    response = client.post(
+        f"/tasks/{task.id}/edit",
+        data=_task_data(_csrf(detail), student_number="20269999"),
+    )
+    assert response.status_code == 423
+    assert services.credentials.decrypt_companion(user.id).student_number == "20260001"

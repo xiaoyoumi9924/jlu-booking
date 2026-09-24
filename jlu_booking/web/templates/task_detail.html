@@ -2,6 +2,7 @@
 {% block title %}任务 #{{ task.id }} · JLU 体育馆预约{% endblock %}
 {% block workspace_title %}预约任务 #{{ task.id }}{% endblock %}
 {% block content %}
+<h1 class="workspace-subpage-title">预约任务 #{{ task.id }}</h1>
 <div class="workspace-page-toolbar"><span></span><a href="/">返回场地查询</a></div>
 <div class="shell-grid" data-task-status-url="/tasks/{{ task.id }}/status" data-poll-ms="3000">
   <section class="card workspace-form-card">

@@ -131,6 +131,8 @@ def test_query_summary_counts_only_current_result(web, monkeypatch):
     assert 'data-court-count="2"' in success.text
     assert 'data-slot-count="3"' in success.text
     assert success.text.count('action="/manual/precheck"') == 3
+    assert success.text.count('class="slot-select"') == 3
+    assert "检查此时段" not in success.text
 
     def reject(*_args):
         raise ValueError("query failed")
