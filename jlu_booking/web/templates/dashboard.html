@@ -33,7 +33,7 @@
 </div>
 
 <section class="card results-card" data-query-results aria-live="polite">
-  <div class="results-head"><div><h2>可预约场地</h2><p>{{ '查询时间：' ~ availability_result.queried_at.strftime('%Y-%m-%d %H:%M:%S') ~ ' 北京时间' if availability_result else '查询后将在这里展示空闲时段' }}</p></div><div class="results-actions"><span class="results-status" data-results-status>{{ '查询完成' if availability_result else '准备就绪' }}</span><button type="button" class="results-clear" data-clear-results>清空结果</button></div></div>
+  <div class="results-head"><div><h2>可预约场地</h2><p data-results-caption>{{ '查询时间：' ~ availability_result.queried_at.strftime('%Y-%m-%d %H:%M:%S') ~ ' 北京时间' if availability_result else '查询后将在这里展示空闲时段' }}</p></div><div class="results-actions"><span class="results-status" data-results-status>{{ '查询完成' if availability_result else '准备就绪' }}</span><button type="button" class="results-clear" data-clear-results>清空结果</button></div></div>
   <div class="results-body" data-results-body>
   {% if availability_result %}
     {% if grouped_slots %}<div class="court-grid">{% for court_name, slots in grouped_slots.items() %}

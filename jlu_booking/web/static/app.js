@@ -96,6 +96,28 @@ document.addEventListener("visibilitychange", () => {
 configureDashboardPolling();
 
 // Keep the GUI's venue choice consistent between live query and new auto tasks.
+function syncVenueCards(venue) {
+  for (const card of document.querySelectorAll("[data-set-venue]")) {
+    const active = card.dataset.setVenue === venue;
+    card.classList.toggle("is-active", active);
+    if (active) card.setAttribute("aria-current", "true");
+    else card.removeAttribute("aria-current");
+    const icon = card.querySelector(".workspace-nav-icon");
+    const description = card.querySelector(".workspace-venue-copy small");
+    if (icon) icon.textContent = active ? "✓" : "馆";
+    if (description) description.textContent = active ? "✓ 当前选中" : "点击切换到此场馆";
+  }
+}
+for (const card of document.querySelectorAll("[data-set-venue]")) {
+  card.addEventListener("click", () => {
+    localStorage.setItem("jlu-preferred-venue", card.dataset.setVenue);
+    const venueSelect = document.querySelector("[data-venue-select]");
+    if (venueSelect && [...venueSelect.options].some((option) => option.value === card.dataset.setVenue)) {
+      venueSelect.value = card.dataset.setVenue;
+      venueSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    }
+  });
+}
 for (const venueSelect of document.querySelectorAll("[data-venue-select]")) {
   const sportSelect = venueSelect.form?.querySelector("[data-sport-select]");
   if (!sportSelect) continue;
@@ -116,20 +138,12 @@ for (const venueSelect of document.querySelectorAll("[data-venue-select]")) {
       chip.hidden = !compatible.some((option) => option.value === chip.dataset.selectSport);
       chip.setAttribute("aria-pressed", String(chip.dataset.selectSport === sportSelect.value));
     }
-    for (const button of document.querySelectorAll("[data-set-venue]")) {
-      button.setAttribute("aria-pressed", String(button.dataset.setVenue === venueSelect.value));
-    }
+    syncVenueCards(venueSelect.value);
   }
   venueSelect.addEventListener("change", () => {
     localStorage.setItem("jlu-preferred-venue", venueSelect.value);
     syncSports();
   });
-  for (const button of document.querySelectorAll("[data-set-venue]")) {
-    button.addEventListener("click", () => {
-      venueSelect.value = button.dataset.setVenue;
-      venueSelect.dispatchEvent(new Event("change", {bubbles: true}));
-    });
-  }
   syncSports();
 }
 
@@ -173,5 +187,6 @@ for (const button of document.querySelectorAll("[data-clear-results]")) {
       window.JLUBooking.setText(document.querySelector(`[data-${key}-number]`), 0);
     }
     window.JLUBooking.setText(document.querySelector("[data-results-status]"), "准备就绪");
+    window.JLUBooking.setText(document.querySelector("[data-results-caption]"), "查询后将在这里展示空闲时段");
   });
 }

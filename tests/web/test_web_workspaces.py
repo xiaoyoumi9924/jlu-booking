@@ -303,3 +303,15 @@ def test_personal_center_history_paginates_and_disabled_user_cannot_read(workspa
     assert client.get("/profile?page=0").status_code == 422
     services.accounts.disable(alice.id, now=NOW)
     assert client.get("/profile", follow_redirects=False).headers["location"] == "/login"
+
+
+def test_non_query_pages_do_not_claim_an_unrelated_venue_is_selected(workspace):
+    client, _admin_client, _services = workspace
+    _login(client, "alice", "long password value")
+    profile = client.get("/profile").text
+    assert 'data-set-venue="前卫体育馆"' in profile
+    assert 'data-set-venue="宋治平体育馆"' in profile
+    assert "✓ 当前选中" not in profile
+    query = client.get("/?venue=宋治平体育馆").text
+    assert 'data-set-venue="宋治平体育馆"' in query
+    assert query.count("✓ 当前选中") == 1

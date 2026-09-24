@@ -3,7 +3,7 @@
 {% block page_class %}user-workspace{% endblock %}
 {% block navigation %}
 {% set active_path = request.url.path %}
-{% set current_venue = selected_venue if selected_venue is defined else (user_venues|first) %}
+{% set current_venue = selected_venue if selected_venue is defined else (task.venue if task is defined and task else (plan.venue if plan is defined and plan else (check.venue if check is defined and check else (result.venue if result is defined and result else none)))) %}
 <details open class="workspace-nav" data-user-nav>
   <summary>功能导航</summary>
   <div class="workspace-nav-inner">
