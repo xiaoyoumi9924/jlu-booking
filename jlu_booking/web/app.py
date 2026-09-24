@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
@@ -116,6 +118,8 @@ def create_app(
         selected.manual_booking = ManualBookingService(
             settings.database_path, selected.credentials
         )
+    # A prior process may have sent freeBuyPlace before exiting. Never replay it.
+    selected.manual_booking.reconcile_incomplete(datetime.now(ZoneInfo("Asia/Shanghai")))
     selected.credentials._reauth_checker = (
         lambda admin_id, now: selected.reauth.is_valid(admin_id, now)
     )

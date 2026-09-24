@@ -1,0 +1,23 @@
+{% extends "user_shell.html" %}
+{% block title %}手动预约结果 · JLU 体育馆预约{% endblock %}
+{% block content %}
+<section class="card manual-card">
+  <p class="eyebrow">手动预约 · 提交结果</p>
+  {% if result.status == 'success' %}
+  <h1>预约成功</h1>
+  {% elif result.status == 'unknown' %}
+  <h1>提交结果不明</h1>
+  {% elif result.status == 'rejected' %}
+  <h1>学校系统未接受预约</h1>
+  {% elif result.status == 'submitting' %}
+  <h1>预约正在提交</h1>
+  {% else %}
+  <h1>等待最终确认</h1>
+  {% endif %}
+  <dl><dt>场馆</dt><dd>{{ result.venue }}</dd><dt>运动项目</dt><dd>{{ result.sport }}</dd><dt>目标日期</dt><dd>{{ result.query_date }}</dd><dt>场地</dt><dd>{{ result.court_name }}</dd><dt>时段</dt><dd>{{ result.start }}–{{ result.end }}</dd></dl>
+  {% if result.detail %}<p role="status">{{ result.detail }}</p>{% endif %}
+  {% if result.status in ('unknown', 'submitting') %}<p class="warning">请到学校系统核对结果；不要重复提交。</p>{% endif %}
+  {% if result.status == 'rejected' %}<p>如需选择其他场地，请重新查询最新空闲时段。</p>{% endif %}
+  <p><a href="/">返回场地查询</a></p>
+</section>
+{% endblock %}

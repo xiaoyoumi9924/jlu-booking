@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 from contextlib import closing
 from dataclasses import dataclass
@@ -10,7 +11,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from ..api import book_place, can_book, get_companion_user, resolve_venue_sport
+from ..api import ServerResponseError, book_place, can_book, get_companion_user, resolve_venue_sport
 from ..auto import (
     is_account_blocked_error, is_auth_error, is_daily_booking_limit_error,
     is_rate_limit_error, is_target_unavailable_error,
@@ -47,6 +48,20 @@ class ManualPrecheck:
     start: str
     end: str
     companion_name: str
+
+
+@dataclass(frozen=True)
+class ManualResult:
+    attempt_id: str
+    status: str
+    kind: str
+    detail: str
+    venue: str
+    sport: str
+    query_date: str
+    court_name: str
+    start: str
+    end: str
 
 
 class ManualBookingService:
@@ -170,7 +185,7 @@ class ManualBookingService:
                 end_time=candidate["end_time"], place_short_name=candidate["place_short_name"],
                 shop_num=shop_num, token=token,
             )
-            if isinstance(check, dict) and check.get("msg") != "success":
+            if not isinstance(check, dict) or check.get("msg") != "success":
                 raise ManualBookingError("rejected", "学校系统未通过预约检查，请重新查询。")
             companion = self._companion_func(student_number=companion_number, token=token)
             school_companion_id = companion.get("id")
@@ -204,3 +219,145 @@ class ManualBookingService:
             candidate["query_date"], candidate["court_name"],
             candidate["start_time"], candidate["end_time"], companion_name,
         )
+
+    @staticmethod
+    def _result(row) -> ManualResult:
+        return ManualResult(
+            attempt_id=row["id"], status=row["status"], kind=row["kind"],
+            detail=row["detail"], venue=row["venue"], sport=row["sport"],
+            query_date=row["query_date"], court_name=row["court_name"],
+            start=row["start_time"], end=row["end_time"],
+        )
+
+    @staticmethod
+    def _attempt_row(db, user_id: int, attempt_id: str):
+        return db.execute(
+            "SELECT a.*,c.venue,c.sport,c.query_date,c.court_name,"
+            "c.place_short_name,c.start_time,c.end_time,c.expires_at,"
+            "u.role,u.status AS owner_status,cred.last_status,"
+            "cred.token_ciphertext,cred.updated_at AS current_credential_updated_at,"
+            "companion.id AS current_companion_id,"
+            "companion.updated_at AS current_companion_updated_at "
+            "FROM manual_booking_attempts a "
+            "JOIN manual_candidates c ON c.id=a.candidate_id "
+            "JOIN users u ON u.id=a.user_id "
+            "LEFT JOIN user_credentials cred ON cred.user_id=a.user_id "
+            "LEFT JOIN companions companion ON companion.user_id=a.user_id "
+            "WHERE a.id=? AND a.user_id=?",
+            (attempt_id, int(user_id)),
+        ).fetchone()
+
+    def result_for_user(self, user_id: int, attempt_id: str) -> ManualResult:
+        with closing(connect_database(self._database_path)) as db:
+            row = self._attempt_row(db, user_id, attempt_id)
+            if row is None:
+                raise ManualBookingError("not_found", "手动预约记录不存在。")
+            return self._result(row)
+
+    def submit(self, user_id: int, attempt_id: str, nonce: str, now: datetime) -> ManualResult:
+        local = self._local(now)
+        with closing(connect_database(self._database_path)) as db:
+            with transaction(db, immediate=True):
+                row = self._attempt_row(db, user_id, attempt_id)
+                if row is None:
+                    raise ManualBookingError("not_found", "手动预约记录不存在。")
+                nonce_hash = hashlib.sha256(str(nonce).encode("utf-8")).digest()
+                if not hmac.compare_digest(bytes(row["confirmation_hash"]), nonce_hash):
+                    raise ManualBookingError("confirmation", "确认凭证无效，请重新查询。")
+                if row["role"] != "user" or row["owner_status"] != "active":
+                    raise ManualBookingError("access", "当前账号不能提交预约。")
+                if row["status"] in {"success", "rejected", "unknown", "submitting"}:
+                    return self._result(row)
+                if row["last_status"] != "valid":
+                    raise ManualBookingError("access", "当前账号不能提交预约。")
+                if (local >= datetime.fromisoformat(row["expires_at"])
+                        or date.fromisoformat(row["query_date"]) < local.date()):
+                    raise CandidateUnavailable()
+                if (row["current_credential_updated_at"] != row["credential_updated_at"]
+                        or row["current_companion_id"] != row["companion_id"]
+                        or row["current_companion_updated_at"] != row["companion_updated_at"]):
+                    raise ManualBookingError("stale", "Token 或同行人已变化，请重新查询并检查。")
+                conflict = db.execute(
+                    "SELECT 1 FROM manual_booking_attempts WHERE user_id=? "
+                    "AND status='submitting' LIMIT 1", (int(user_id),)
+                ).fetchone()
+                if conflict is not None:
+                    raise ManualBookingError("busy", "已有预约正在提交，请等待结果。")
+                token = self._cipher.decrypt(row["token_ciphertext"])
+                shop_num, _short_name = resolve_venue_sport(row["venue"], row["sport"])
+                changed = db.execute(
+                    "UPDATE manual_booking_attempts SET status='submitting',"
+                    "updated_at=? WHERE id=? AND status='prechecked'",
+                    (local.isoformat(), attempt_id),
+                ).rowcount
+                if changed != 1:
+                    raise ManualBookingError("busy", "预约状态已变化，请查看最新结果。")
+                payload = dict(row)
+        common = dict(
+            query_date=payload["query_date"], start_time=payload["start_time"],
+            end_time=payload["end_time"], place_short_name=payload["place_short_name"],
+            shop_num=shop_num, token=token,
+        )
+        try:
+            check = self._can_book_func(**common)
+            if not isinstance(check, dict) or check.get("msg") != "success":
+                raise ManualBookingError("rejected", "学校系统未通过最终预约检查。")
+        except ManualBookingError as exc:
+            return self._finish(attempt_id, "rejected", exc.kind, str(exc), local)
+        except Exception as exc:
+            safe = self._safe_error(exc)
+            return self._finish(attempt_id, "rejected", safe.kind, str(safe), local)
+        school_id = payload["school_companion_id"]
+        if str(school_id).isdigit():
+            school_id = int(school_id)
+        try:
+            response = self._book_place_func(
+                **common, court_name=payload["court_name"],
+                companion_user_ids=[school_id],
+            )
+            if not isinstance(response, dict):
+                raise ValueError("school response was not a mapping")
+            if response.get("msg") != "success":
+                raise ServerResponseError(response)
+        except ServerResponseError as exc:
+            safe = self._safe_error(exc)
+            return self._finish(attempt_id, "rejected", safe.kind, str(safe), local)
+        except Exception as exc:
+            if is_rate_limit_error(exc):
+                safe = self._safe_error(exc)
+                return self._finish(attempt_id, "rejected", safe.kind, str(safe), local)
+            return self._finish(
+                attempt_id, "unknown", "unknown",
+                "提交结果不明，请到学校系统核对；不要重复提交。", local,
+            )
+        return self._finish(attempt_id, "success", "success", "学校系统已确认预约成功。", local)
+
+    def _finish(
+        self, attempt_id: str, status: str, kind: str, detail: str, now: datetime,
+    ) -> ManualResult:
+        with closing(connect_database(self._database_path)) as db:
+            with transaction(db, immediate=True):
+                db.execute(
+                    "UPDATE manual_booking_attempts SET status=?,kind=?,detail=?,updated_at=? "
+                    "WHERE id=? AND status='submitting'",
+                    (status, kind, detail, now.isoformat(), attempt_id),
+                )
+                row = db.execute(
+                    "SELECT a.*,c.venue,c.sport,c.query_date,c.court_name,"
+                    "c.start_time,c.end_time FROM manual_booking_attempts a "
+                    "JOIN manual_candidates c ON c.id=a.candidate_id WHERE a.id=?",
+                    (attempt_id,),
+                ).fetchone()
+                return self._result(row)
+
+    def reconcile_incomplete(self, now: datetime) -> int:
+        local = self._local(now)
+        with closing(connect_database(self._database_path)) as db:
+            with transaction(db, immediate=True):
+                changed = db.execute(
+                    "UPDATE manual_booking_attempts SET status='unknown',kind='unknown',"
+                    "detail='提交结果不明，请到学校系统核对；不要重复提交。',updated_at=? "
+                    "WHERE status='submitting'",
+                    (local.isoformat(),),
+                ).rowcount
+        return changed

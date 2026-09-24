@@ -1,6 +1,8 @@
 """Offline manual booking candidate ownership and safety tests."""
 
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 import re
 from zoneinfo import ZoneInfo
 
@@ -205,3 +207,150 @@ def test_query_to_precheck_route_never_submits_and_hides_token(state, tmp_path, 
         })
         assert denied.status_code == 400
         assert books == []
+
+
+def test_final_check_then_one_submit_and_replay_returns_saved_success(state):
+    _path, db, _credentials, _accounts, users = state
+    calls = []
+    service = make_service(
+        state,
+        can_book_func=lambda **kwargs: calls.append(("check", kwargs)) or {"msg": "success"},
+        book_place_func=lambda **kwargs: calls.append(("book", kwargs)) or {"msg": "success"},
+    )
+    candidate = service.register_candidates(users["alice"], result())[0]
+    prechecked = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    assert [name for name, _ in calls] == ["check"]
+    first = service.submit(users["alice"], prechecked.attempt_id, prechecked.nonce, NOW)
+    second = service.submit(users["alice"], prechecked.attempt_id, prechecked.nonce, NOW)
+    assert first.status == second.status == "success"
+    assert [name for name, _ in calls] == ["check", "check", "book"]
+    assert calls[-1][1]["companion_user_ids"] == [8]
+    assert db.execute("SELECT status FROM manual_booking_attempts WHERE id=?", (prechecked.attempt_id,)).fetchone()[0] == "success"
+    with pytest.raises(ManualBookingError):
+        service.submit(users["bob"], prechecked.attempt_id, prechecked.nonce, NOW)
+
+
+def test_final_check_rejection_never_submits(state):
+    _path, _db, _credentials, _accounts, users = state
+    calls = []
+    def check(**_kwargs):
+        calls.append("check")
+        if len(calls) == 2:
+            raise ServerResponseError({"msg": "场地已被预约"})
+        return {"msg": "success"}
+    service = make_service(
+        state, can_book_func=check,
+        book_place_func=lambda **_: calls.append("book"),
+    )
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    outcome = service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    assert outcome.status == "rejected" and outcome.kind == "target_unavailable"
+    assert calls == ["check", "check"]
+
+
+@pytest.mark.parametrize("error, expected_status, expected_kind", [
+    (ServerResponseError({"msg": "当天预约次数已达上限"}), "rejected", "daily_limit"),
+    (ServerResponseError({"msg": "ACCOUNT_BLOCKED"}), "rejected", "account_blocked"),
+    (ServerResponseError({"msg": "Token 已失效"}), "rejected", "auth"),
+    (ServerResponseError({"msg": "请求过于频繁"}), "rejected", "rate_limit"),
+    (TimeoutError("private-token-alice response parse failed"), "unknown", "unknown"),
+])
+def test_submit_classifies_explicit_rejection_and_unknown_without_retry(
+    state, error, expected_status, expected_kind
+):
+    _path, db, _credentials, _accounts, users = state
+    calls = []
+    def reject(**_kwargs):
+        calls.append("book")
+        raise error
+    service = make_service(state, book_place_func=reject)
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    outcome = service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    again = service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    assert outcome.status == again.status == expected_status
+    assert outcome.kind == expected_kind
+    assert "private-token-alice" not in outcome.detail
+    assert calls == ["book"]
+    assert db.execute("SELECT status FROM manual_booking_attempts WHERE id=?", (attempt.attempt_id,)).fetchone()[0] == expected_status
+
+
+def test_reconcile_orphaned_submitting_is_unknown_without_call(state):
+    _path, db, _credentials, _accounts, users = state
+    calls = []
+    service = make_service(state, book_place_func=lambda **_: calls.append("book"))
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    db.execute("UPDATE manual_booking_attempts SET status='submitting' WHERE id=?", (attempt.attempt_id,))
+    assert service.reconcile_incomplete(NOW) == 1
+    assert service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW).status == "unknown"
+    assert calls == []
+
+
+def test_changed_credential_and_companion_block_stale_confirmation(state):
+    _path, db, _credentials, _accounts, users = state
+    calls = []
+    service = make_service(state, book_place_func=lambda **_: calls.append("book"))
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    db.execute("UPDATE user_credentials SET updated_at=? WHERE user_id=?",
+               ((NOW + timedelta(seconds=1)).isoformat(), users["alice"]))
+    with pytest.raises(ManualBookingError):
+        service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    db.execute("UPDATE user_credentials SET updated_at=? WHERE user_id=?", (NOW.isoformat(), users["alice"]))
+    db.execute("UPDATE companions SET updated_at=? WHERE user_id=?",
+               ((NOW + timedelta(seconds=1)).isoformat(), users["alice"]))
+    with pytest.raises(ManualBookingError):
+        service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    assert calls == []
+
+
+def test_submitting_replay_during_first_school_call_does_not_submit_twice(state):
+    _path, _db, _credentials, _accounts, users = state
+    entered, release = Event(), Event()
+    books = []
+    def book(**kwargs):
+        books.append(kwargs)
+        entered.set()
+        assert release.wait(5)
+        return {"msg": "success"}
+    service = make_service(state, book_place_func=book)
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(service.submit, users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+        assert entered.wait(5)
+        in_flight = service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+        assert in_flight.status == "submitting"
+        assert len(books) == 1
+        release.set()
+        assert first.result(timeout=5).status == "success"
+    assert service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW).status == "success"
+    assert len(books) == 1
+
+
+def test_submit_rejects_expired_or_yesterday_candidate_without_school_calls(state):
+    _path, _db, _credentials, _accounts, users = state
+    calls = []
+    service = make_service(state, can_book_func=lambda **_: calls.append("check") or {"msg": "success"})
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    calls.clear()
+    with pytest.raises(CandidateUnavailable):
+        service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW + timedelta(minutes=2))
+    with pytest.raises(CandidateUnavailable):
+        service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW + timedelta(days=1))
+    assert calls == []
+
+
+def test_disabled_user_cannot_replay_manual_result_via_submit(state):
+    _path, _db, _credentials, accounts, users = state
+    service = make_service(state)
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    assert service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW).status == "success"
+    accounts.disable(users["alice"], now=NOW)
+    with pytest.raises(ManualBookingError) as raised:
+        service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    assert raised.value.kind == "access"

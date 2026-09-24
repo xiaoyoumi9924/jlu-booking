@@ -216,6 +216,7 @@ MIGRATION_3 = (
         credential_updated_at TEXT NOT NULL,
         confirmation_hash BLOB NOT NULL UNIQUE,
         status TEXT NOT NULL CHECK (status IN ('prechecked', 'submitting', 'success', 'rejected', 'unknown')),
+        kind TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         detail TEXT NOT NULL DEFAULT ''
