@@ -277,6 +277,15 @@ class ManualBookingService:
                         or row["current_companion_id"] != row["companion_id"]
                         or row["current_companion_updated_at"] != row["companion_updated_at"]):
                     raise ManualBookingError("stale", "Token 或同行人已变化，请重新查询并检查。")
+                automatic = db.execute(
+                    "SELECT 1 FROM booking_tasks WHERE user_id=? AND "
+                    "(status='running' OR (status IN ('success','submission_unknown') "
+                    "AND date(execution_date, CASE target_day WHEN 'tomorrow' "
+                    "THEN '+1 day' ELSE '+0 day' END)=?)) LIMIT 1",
+                    (int(user_id), row["query_date"]),
+                ).fetchone()
+                if automatic is not None:
+                    raise ManualBookingError("busy", "自动预约正在运行或目标日期已有预约结果，请先核对。")
                 conflict = db.execute(
                     "SELECT 1 FROM manual_booking_attempts WHERE user_id=? "
                     "AND status='submitting' LIMIT 1", (int(user_id),)
@@ -342,6 +351,17 @@ class ManualBookingService:
                     "WHERE id=? AND status='submitting'",
                     (status, kind, detail, now.isoformat(), attempt_id),
                 )
+                if status in {"success", "unknown"}:
+                    db.execute(
+                        "UPDATE booking_tasks SET status='cancelled',cancelled_at=?,updated_at=? "
+                        "WHERE status='scheduled' AND user_id=("
+                        "SELECT user_id FROM manual_booking_attempts WHERE id=?) "
+                        "AND date(execution_date, CASE target_day WHEN 'tomorrow' "
+                        "THEN '+1 day' ELSE '+0 day' END)=("
+                        "SELECT c.query_date FROM manual_booking_attempts a "
+                        "JOIN manual_candidates c ON c.id=a.candidate_id WHERE a.id=?)",
+                        (now.isoformat(), now.isoformat(), attempt_id, attempt_id),
+                    )
                 row = db.execute(
                     "SELECT a.*,c.venue,c.sport,c.query_date,c.court_name,"
                     "c.start_time,c.end_time FROM manual_booking_attempts a "
@@ -360,4 +380,15 @@ class ManualBookingService:
                     "WHERE status='submitting'",
                     (local.isoformat(),),
                 ).rowcount
+                if changed:
+                    db.execute(
+                        "UPDATE booking_tasks SET status='cancelled',cancelled_at=?,updated_at=? "
+                        "WHERE status='scheduled' AND EXISTS ("
+                        "SELECT 1 FROM manual_booking_attempts a JOIN manual_candidates c "
+                        "ON c.id=a.candidate_id WHERE a.user_id=booking_tasks.user_id "
+                        "AND a.status='unknown' AND c.query_date="
+                        "date(booking_tasks.execution_date, CASE booking_tasks.target_day "
+                        "WHEN 'tomorrow' THEN '+1 day' ELSE '+0 day' END))",
+                        (local.isoformat(), local.isoformat()),
+                    )
         return changed

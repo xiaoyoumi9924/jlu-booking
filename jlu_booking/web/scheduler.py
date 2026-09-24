@@ -145,6 +145,22 @@ class Scheduler:
             ).fetchall()
             for row in rows:
                 task = TaskService._record(row)
+                target_date = TaskService.target_date(task.execution_date, task.target_day)
+                manual = self._connection.execute(
+                    "SELECT a.status FROM manual_booking_attempts a "
+                    "JOIN manual_candidates c ON c.id=a.candidate_id "
+                    "WHERE a.user_id=? AND (a.status='submitting' OR "
+                    "(c.query_date=? AND a.status IN ('success','unknown'))) "
+                    "ORDER BY CASE a.status WHEN 'submitting' THEN 0 ELSE 1 END LIMIT 1",
+                    (task.user_id, target_date.isoformat()),
+                ).fetchone()
+                if manual is not None:
+                    if manual["status"] == "submitting":
+                        continue
+                    self._finalize_skipped(
+                        task, now, "同日已有手动预约或结果不明，未启动自动任务。"
+                    )
+                    continue
                 if row["owner_status"] != "active" or row["credential_status"] != "valid":
                     detail = "任务所有者或 Token 状态已失效，未启动预约。"
                     self._connection.execute(
@@ -196,6 +212,20 @@ class Scheduler:
                 )
                 claimed.append((task, launch))
         return claimed
+
+    def _finalize_skipped(self, task: BookingTask, now: datetime, detail: str) -> None:
+        """Finalize a scheduled task inside the caller's claim transaction."""
+        changed = self._connection.execute(
+            "UPDATE booking_tasks SET status='stopped',updated_at=? "
+            "WHERE id=? AND status='scheduled'",
+            (now.isoformat(), task.id),
+        ).rowcount
+        if changed:
+            self._connection.execute(
+                "INSERT INTO task_runs (task_id,runtime_path,log_path,started_at,finished_at,"
+                "final_status,detail) VALUES (?,'','',?,?,'stopped',?)",
+                (task.id, now.isoformat(), now.isoformat(), detail),
+            )
 
     def _start_claimed(
         self,

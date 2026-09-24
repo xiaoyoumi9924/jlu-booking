@@ -33,6 +33,10 @@ class OpenTaskExists(TaskError):
     pass
 
 
+class ManualResultExists(TaskError):
+    pass
+
+
 class ExecutionDateFull(TaskError):
     pass
 
@@ -103,6 +107,21 @@ class TaskService:
         if target_day == "tomorrow":
             return execution_date + timedelta(days=1)
         raise ValueError("target_day 只能是 today 或 tomorrow。")
+
+    @staticmethod
+    def has_manual_terminal(connection, user_id: int, target_date: date) -> bool:
+        return connection.execute(
+            "SELECT 1 FROM manual_booking_attempts a "
+            "JOIN manual_candidates c ON c.id=a.candidate_id "
+            "WHERE a.user_id=? AND c.query_date=? "
+            "AND a.status IN ('success','unknown') LIMIT 1",
+            (int(user_id), target_date.isoformat()),
+        ).fetchone() is not None
+
+    def _require_no_manual_terminal(self, user_id: int, execution_date: date, target_day: str) -> None:
+        target_date = self.target_date(execution_date, target_day)
+        if self.has_manual_terminal(self._connection, user_id, target_date):
+            raise ManualResultExists("目标日期已有手动预约成功或提交结果不明，不能创建自动任务。")
 
     @staticmethod
     def _optional_datetime(value: str | None) -> datetime | None:
@@ -208,6 +227,7 @@ class TaskService:
             with transaction(self._connection, immediate=True):
                 self._require_eligible_user(user_id)
                 values = self._normalize_draft(user_id, draft)
+                self._require_no_manual_terminal(user_id, execution_date, values["target_day"])
                 count = self._connection.execute(
                     "SELECT COUNT(*) FROM booking_tasks "
                     "WHERE execution_date = ? AND status != 'cancelled'",
@@ -258,6 +278,7 @@ class TaskService:
             self._require_before_cutoff(task, local_now)
             self._require_eligible_user(user_id)
             values = self._normalize_draft(user_id, draft)
+            self._require_no_manual_terminal(user_id, task.execution_date, values["target_day"])
             self._connection.execute(
                 "UPDATE booking_tasks SET target_day = ?, venue = ?, sport = ?, "
                 "companion_id = ?, preferred_court_number = ?, "

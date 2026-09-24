@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from jlu_booking.web.db import connect_database, migrate_database
-from jlu_booking.web.tasks import CredentialUnavailable, TaskDraft, UserUnavailable
+from jlu_booking.web.tasks import CredentialUnavailable, TaskDraft, TaskError, TaskService, UserUnavailable
 from jlu_booking.web.daily_plans import DailyPlanService
 
 BEIJING = ZoneInfo("Asia/Shanghai")
@@ -60,6 +60,25 @@ def insert_task(db, user_id, companion_id, plan_id, status, *, source="daily"):
     ).lastrowid
 
 
+def insert_manual_result(db, user_id, companion_id, target_date, status):
+    stamp = BASE.isoformat()
+    candidate_id = f"manual-{user_id}-{status}"
+    db.execute(
+        "INSERT INTO manual_candidates (id,user_id,venue,sport,query_date,court_name,"
+        "place_short_name,start_time,end_time,created_at,expires_at) "
+        "VALUES (?,?,'前卫体育馆','羽毛球',?,'1号场','ymq1','15:30','17:30',?,?)",
+        (candidate_id, user_id, target_date, stamp, stamp),
+    )
+    db.execute(
+        "INSERT INTO manual_booking_attempts (id,user_id,candidate_id,companion_id,"
+        "companion_updated_at,school_companion_id,credential_updated_at,"
+        "confirmation_hash,status,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,'8',?,?,?,?,?)",
+        (f"attempt-{user_id}-{status}", user_id, candidate_id, companion_id,
+         stamp, stamp, f"hash-{user_id}-{status}".encode(), status, stamp, stamp),
+    )
+
+
 def test_save_validates_owner_and_preserves_order_and_explicit_real_mode(state):
     db, plans = state
     alice, companion = add_user(db, "alice")
@@ -82,6 +101,21 @@ def test_save_validates_owner_and_preserves_order_and_explicit_real_mode(state):
     with pytest.raises(UserUnavailable):
         plans.save(admin, draft(admin_companion), now=BASE)
     assert plans.get_for_user(bob) is None
+
+
+@pytest.mark.parametrize("outcome", ["success", "unknown"])
+def test_manual_result_blocks_same_target_date_one_shot_and_daily_task(state, outcome):
+    db, plans = state
+    alice, companion = add_user(db, "alice")
+    bob, bob_companion = add_user(db, "bob")
+    insert_manual_result(db, alice, companion, BASE.date().isoformat(), outcome)
+    with pytest.raises(TaskError):
+        TaskService(db).create(alice, draft(companion), now=BASE)
+    assert TaskService(db).create(bob, draft(bob_companion), now=BASE).status == "scheduled"
+    plans.save(alice, draft(companion), now=BASE)
+    plans.set_enabled(alice, True, now=BASE)
+    assert plans.materialize(BASE) == ()
+    assert db.execute("SELECT COUNT(*) FROM booking_tasks WHERE user_id=?", (alice,)).fetchone()[0] == 0
 
 
 def test_enable_order_resets_only_after_off_to_on(state):

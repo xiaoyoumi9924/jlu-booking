@@ -354,3 +354,70 @@ def test_disabled_user_cannot_replay_manual_result_via_submit(state):
     with pytest.raises(ManualBookingError) as raised:
         service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
     assert raised.value.kind == "access"
+
+
+def test_running_automatic_task_blocks_manual_submission_before_school_calls(state):
+    _path, db, _credentials, _accounts, users = state
+    calls = []
+    service = make_service(
+        state, can_book_func=lambda **_: calls.append("check") or {"msg": "success"},
+        book_place_func=lambda **_: calls.append("book") or {"msg": "success"},
+    )
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    calls.clear()
+    companion = db.execute("SELECT id FROM companions WHERE user_id=?", (users["alice"],)).fetchone()[0]
+    db.execute(
+        "INSERT INTO booking_tasks (user_id,execution_date,target_day,venue,sport,companion_id,"
+        "preferred_court_number,time_priority_json,real_booking_enabled,status,created_at,updated_at) "
+        "VALUES (?,'2026-09-23','today','前卫体育馆','羽毛球',?,3,'[]',1,'running',?,?)",
+        (users["alice"], companion, NOW.isoformat(), NOW.isoformat()),
+    )
+    with pytest.raises(ManualBookingError) as raised:
+        service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    assert raised.value.kind == "busy"
+    assert calls == []
+
+
+@pytest.mark.parametrize("automatic_status", ["success", "submission_unknown"])
+def test_completed_automatic_result_blocks_same_date_manual_submit(state, automatic_status):
+    _path, db, _credentials, _accounts, users = state
+    calls = []
+    service = make_service(
+        state, can_book_func=lambda **_: calls.append("check") or {"msg": "success"},
+        book_place_func=lambda **_: calls.append("book") or {"msg": "success"},
+    )
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    calls.clear()
+    companion = db.execute("SELECT id FROM companions WHERE user_id=?", (users["alice"],)).fetchone()[0]
+    db.execute(
+        "INSERT INTO booking_tasks (user_id,execution_date,target_day,venue,sport,companion_id,"
+        "preferred_court_number,time_priority_json,real_booking_enabled,status,created_at,updated_at) "
+        "VALUES (?,'2026-09-22','tomorrow','前卫体育馆','羽毛球',?,3,'[]',1,?,?,?)",
+        (users["alice"], companion, automatic_status, NOW.isoformat(), NOW.isoformat()),
+    )
+    with pytest.raises(ManualBookingError) as raised:
+        service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW)
+    assert raised.value.kind == "busy"
+    assert calls == []
+
+
+@pytest.mark.parametrize("status", ["success", "unknown"])
+def test_manual_terminal_result_cancels_scheduled_same_date_task(state, status):
+    _path, db, _credentials, _accounts, users = state
+    service = make_service(state, book_place_func=(
+        (lambda **_: {"msg": "success"}) if status == "success"
+        else (lambda **_: (_ for _ in ()).throw(TimeoutError("uncertain")))
+    ))
+    candidate = service.register_candidates(users["alice"], result())[0]
+    attempt = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    companion = db.execute("SELECT id FROM companions WHERE user_id=?", (users["alice"],)).fetchone()[0]
+    task_id = db.execute(
+        "INSERT INTO booking_tasks (user_id,execution_date,target_day,venue,sport,companion_id,"
+        "preferred_court_number,time_priority_json,real_booking_enabled,status,created_at,updated_at) "
+        "VALUES (?,'2026-09-23','today','前卫体育馆','羽毛球',?,3,'[]',1,'scheduled',?,?)",
+        (users["alice"], companion, NOW.isoformat(), NOW.isoformat()),
+    ).lastrowid
+    assert service.submit(users["alice"], attempt.attempt_id, attempt.nonce, NOW).status == status
+    assert db.execute("SELECT status FROM booking_tasks WHERE id=?", (task_id,)).fetchone()[0] == "cancelled"

@@ -48,6 +48,26 @@ def _insert_task(connection, *, username, execution_date="2026-09-22", status="s
     return user_id, task_id
 
 
+def _insert_manual_attempt(connection, user_id, *, target_date="2026-09-22", status="submitting"):
+    stamp = f"{target_date}T06:00:00+08:00"
+    companion_id = connection.execute("SELECT id FROM companions WHERE user_id=?", (user_id,)).fetchone()[0]
+    candidate_id = f"candidate-{user_id}-{status}"
+    connection.execute(
+        "INSERT INTO manual_candidates (id,user_id,venue,sport,query_date,court_name,"
+        "place_short_name,start_time,end_time,created_at,expires_at) "
+        "VALUES (?,?,'前卫体育馆','羽毛球',?,'1号场','ymq1','15:30','17:30',?,?)",
+        (candidate_id, user_id, target_date, stamp, stamp),
+    )
+    connection.execute(
+        "INSERT INTO manual_booking_attempts (id,user_id,candidate_id,companion_id,"
+        "companion_updated_at,school_companion_id,credential_updated_at,"
+        "confirmation_hash,status,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,'8',?,?,?, ?,?)",
+        (f"attempt-{user_id}-{status}", user_id, candidate_id, companion_id,
+         stamp, stamp, f"hash-{user_id}-{status}".encode(), status, stamp, stamp),
+    )
+
+
 class FakeRunning:
     def __init__(self):
         self.exit_code = None
@@ -150,6 +170,32 @@ def test_one_tick_claims_every_due_task_and_writes_run_rows(database, tmp_path):
     assert database.execute(
         "SELECT COUNT(*) FROM booking_tasks WHERE status = 'running'"
     ).fetchone()[0] == 3
+
+
+def test_submitting_manual_attempt_pauses_only_its_owner_until_rejected(database, tmp_path):
+    alice, alice_task = _insert_task(database, username="alice")
+    _bob, bob_task = _insert_task(database, username="bob")
+    _insert_manual_attempt(database, alice)
+    worker = FakeWorker(tmp_path / "runtime")
+    scheduler = Scheduler(database, worker)
+    start = datetime(2026, 9, 22, 7, 27, tzinfo=BEIJING)
+    assert scheduler.run_once(start).started_task_ids == (bob_task,)
+    assert database.execute("SELECT status FROM booking_tasks WHERE id=?", (alice_task,)).fetchone()[0] == "scheduled"
+    database.execute("UPDATE manual_booking_attempts SET status='rejected' WHERE user_id=?", (alice,))
+    assert scheduler.run_once(start.replace(second=1)).started_task_ids == (alice_task,)
+
+
+@pytest.mark.parametrize("manual_status", ["success", "unknown"])
+def test_manual_terminal_outcome_skips_same_date_automatic_task(database, tmp_path, manual_status):
+    alice, alice_task = _insert_task(database, username="alice")
+    _bob, bob_task = _insert_task(database, username="bob")
+    _insert_manual_attempt(database, alice, status=manual_status)
+    worker = FakeWorker(tmp_path / "runtime")
+    tick = Scheduler(database, worker).run_once(datetime(2026, 9, 22, 7, 27, tzinfo=BEIJING))
+    assert tick.started_task_ids == (bob_task,)
+    assert worker.started_task_ids == [bob_task]
+    assert database.execute("SELECT status FROM booking_tasks WHERE id=?", (alice_task,)).fetchone()[0] == "stopped"
+    assert database.execute("SELECT final_status FROM task_runs WHERE task_id=?", (alice_task,)).fetchone()[0] == "stopped"
 
 
 def test_scheduler_materializes_before_cutoff_and_claims_without_delay(database, tmp_path):

@@ -139,6 +139,9 @@ class DailyPlanService:
             for row in rows:
                 if count >= self._execution_limit:
                     break
+                target_date = TaskService.target_date(local.date(), row["target_day"])
+                if TaskService.has_manual_terminal(self._connection, row["user_id"], target_date):
+                    continue
                 if self._has_open_or_daily_task(row["user_id"], local.date()):
                     continue
                 try:
