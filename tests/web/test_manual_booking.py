@@ -230,6 +230,32 @@ def test_final_check_then_one_submit_and_replay_returns_saved_success(state):
         service.submit(users["bob"], prechecked.attempt_id, prechecked.nonce, NOW)
 
 
+@pytest.mark.parametrize("first_status", ["success", "unknown"])
+def test_distinct_manual_attempt_cannot_repeat_same_date_after_terminal_result(state, first_status):
+    _path, _db, _credentials, _accounts, users = state
+    books = []
+    def book(**kwargs):
+        books.append(kwargs)
+        if first_status == "unknown":
+            raise TimeoutError("response lost")
+        return {"msg": "success"}
+    service = make_service(state, book_place_func=book)
+    candidate = service.register_candidates(users["alice"], result())[0]
+    first = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    second = service.precheck(users["alice"], candidate["candidate_id"], NOW)
+    assert service.submit(users["alice"], first.attempt_id, first.nonce, NOW).status == first_status
+    assert service.submit(users["alice"], first.attempt_id, first.nonce, NOW).status == first_status
+    restarted = make_service(state, book_place_func=book)
+    with pytest.raises(ManualBookingError) as raised:
+        restarted.submit(users["alice"], second.attempt_id, second.nonce, NOW)
+    assert raised.value.kind == "already_submitted"
+    fresh_candidate = restarted.register_candidates(users["alice"], result())[0]
+    with pytest.raises(ManualBookingError) as raised:
+        restarted.precheck(users["alice"], fresh_candidate["candidate_id"], NOW)
+    assert raised.value.kind == "already_submitted"
+    assert len(books) == 1
+
+
 def test_final_check_rejection_never_submits(state):
     _path, _db, _credentials, _accounts, users = state
     calls = []

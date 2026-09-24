@@ -170,10 +170,25 @@ class ManualBookingService:
             raise CandidateUnavailable()
         return row
 
+    @staticmethod
+    def _require_no_terminal_for_date(db, user_id: int, query_date: str) -> None:
+        prior = db.execute(
+            "SELECT 1 FROM manual_booking_attempts a "
+            "JOIN manual_candidates c ON c.id=a.candidate_id "
+            "WHERE a.user_id=? AND c.query_date=? "
+            "AND a.status IN ('success','unknown') LIMIT 1",
+            (int(user_id), query_date),
+        ).fetchone()
+        if prior is not None:
+            raise ManualBookingError(
+                "already_submitted", "目标日期已有手动预约成功或提交结果不明，请先到学校系统核对。"
+            )
+
     def precheck(self, user_id: int, candidate_id: str, now: datetime) -> ManualPrecheck:
         local = self._local(now)
         with closing(connect_database(self._database_path)) as db:
             row = self._candidate_and_owner(db, user_id, candidate_id, local)
+            self._require_no_terminal_for_date(db, user_id, row["query_date"])
             candidate = dict(row)
             token = self._cipher.decrypt(row["token_ciphertext"])
             companion_number = self._cipher.decrypt(row["student_number_ciphertext"])
@@ -201,6 +216,7 @@ class ManualBookingService:
         with closing(connect_database(self._database_path)) as db:
             with transaction(db, immediate=True):
                 current = self._candidate_and_owner(db, user_id, candidate_id, local)
+                self._require_no_terminal_for_date(db, user_id, current["query_date"])
                 if (current["credential_updated_at"] != candidate["credential_updated_at"]
                         or current["companion_updated_at"] != candidate["companion_updated_at"]):
                     raise CandidateUnavailable()
@@ -268,6 +284,7 @@ class ManualBookingService:
                     raise ManualBookingError("access", "当前账号不能提交预约。")
                 if row["status"] in {"success", "rejected", "unknown", "submitting"}:
                     return self._result(row)
+                self._require_no_terminal_for_date(db, user_id, row["query_date"])
                 if row["last_status"] != "valid":
                     raise ManualBookingError("access", "当前账号不能提交预约。")
                 if (local >= datetime.fromisoformat(row["expires_at"])

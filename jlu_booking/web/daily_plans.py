@@ -56,6 +56,30 @@ class DailyPlanService:
         ).fetchone()
         return self._record(row) if row is not None else None
 
+    def blocking_reason(self, plan: DailyPlan, execution_date: date) -> str | None:
+        """Explain why an enabled plan cannot receive or run its next task."""
+        if not plan.enabled:
+            return None
+        credential = self._connection.execute(
+            "SELECT last_status FROM user_credentials WHERE user_id=?", (plan.user_id,)
+        ).fetchone()
+        if credential is None:
+            return "Token 未绑定，请到个人设置绑定。"
+        if credential["last_status"] == "account_blocked":
+            return "学校账号状态异常，请到学校系统核对。"
+        if credential["last_status"] != "valid":
+            return "Token 已失效，请到个人设置重新绑定。"
+        companion = self._connection.execute(
+            "SELECT 1 FROM companions WHERE id=? AND user_id=?",
+            (plan.companion_id, plan.user_id),
+        ).fetchone()
+        if companion is None:
+            return "同行人未验证，请到个人设置核对。"
+        target_date = TaskService.target_date(execution_date, plan.target_day)
+        if TaskService.has_manual_terminal(self._connection, plan.user_id, target_date):
+            return "目标日期已有手动预约或结果不明，未安排自动任务。"
+        return None
+
     def save(self, user_id: int, draft: TaskDraft, *, now: datetime) -> DailyPlan:
         local = require_aware(now).astimezone(BEIJING)
         stamp = local.isoformat()

@@ -46,6 +46,7 @@ def _context(request, session, user, *, error=None):
             (plan.id, execution_date.isoformat()),
             ).fetchone()
         task = services.tasks._record(row) if row else None
+    blocking_reason = services.daily_plans.blocking_reason(plan, execution_date) if plan else None
     try:
         companion = services.credentials.decrypt_companion(user.id)
         companion_name = companion.name
@@ -55,8 +56,12 @@ def _context(request, session, user, *, error=None):
         status_text = "已关闭；当前任务仍在运行"
     elif not plan or not plan.enabled:
         status_text = "未开启"
-    elif task and task.status in {"scheduled", "running"}:
-        status_text = "已排程" if task.status == "scheduled" else "运行中"
+    elif task and task.status == "running":
+        status_text = "运行中"
+    elif blocking_reason:
+        status_text = blocking_reason
+    elif task and task.status == "scheduled":
+        status_text = "已排程"
     elif task and task.status != "cancelled":
         status_text = f"最近结果：{task.status}"
     else:

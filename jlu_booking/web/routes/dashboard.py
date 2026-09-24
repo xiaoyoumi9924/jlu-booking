@@ -36,6 +36,7 @@ def dashboard_context(request, session, user, *, result=None, error=None):
     daily_plan = services.daily_plans.get_for_user(user.id)
     daily_status = "未开启"
     if daily_plan:
+        blocking_reason = services.daily_plans.blocking_reason(daily_plan, execution_date)
         running_row = services.connection.execute(
             "SELECT status FROM booking_tasks WHERE daily_plan_id=? "
             "AND status='running' ORDER BY id DESC LIMIT 1",
@@ -50,6 +51,8 @@ def dashboard_context(request, session, user, *, result=None, error=None):
             daily_status = "运行中" if daily_plan.enabled else "已关闭；当前任务仍在运行"
         elif not daily_plan.enabled:
             daily_status = "未开启"
+        elif blocking_reason:
+            daily_status = blocking_reason
         elif daily_row and daily_row["status"] == "scheduled":
             daily_status = "已排程"
         elif daily_row and daily_row["status"] == "running":

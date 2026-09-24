@@ -16,7 +16,7 @@ from jlu_booking.web.db import connect_database, migrate_database
 from jlu_booking.web.security import CredentialCipher, PasswordService, ThrottleService
 from jlu_booking.web.sessions import SessionService
 from jlu_booking.web.settings import WebSettings
-from jlu_booking.web.tasks import TaskService
+from jlu_booking.web.tasks import TaskDraft, TaskService
 
 NOW = datetime(2026, 9, 23, 6, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
 
@@ -153,3 +153,28 @@ def test_disabling_after_cutoff_does_not_stop_running_daily_task(web, monkeypatc
     assert "当前任务仍在运行" in detail.text
     dashboard = client.get("/")
     assert "当前任务仍在运行" in dashboard.text
+
+
+@pytest.mark.parametrize("credential_status, expected", [
+    ("token_invalid", "Token 已失效"),
+    ("account_blocked", "学校账号状态异常"),
+])
+def test_enabled_plan_shows_actionable_credential_block_in_both_workspaces(
+    web, credential_status, expected
+):
+    client, services, alice_id = web
+    login(client, "alice")
+    companion_id = services.connection.execute(
+        "SELECT id FROM companions WHERE user_id=?", (alice_id,)
+    ).fetchone()[0]
+    services.daily_plans.save(alice_id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", companion_id,
+        3, [["15:30", "17:30"]], False,
+    ), now=NOW)
+    services.daily_plans.set_enabled(alice_id, True, now=NOW)
+    services.connection.execute(
+        "UPDATE user_credentials SET last_status=? WHERE user_id=?",
+        (credential_status, alice_id),
+    )
+    assert expected in client.get("/daily-plan").text
+    assert expected in client.get("/").text
