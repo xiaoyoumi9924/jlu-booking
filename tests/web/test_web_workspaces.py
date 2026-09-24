@@ -35,6 +35,7 @@ def workspace(tmp_path, monkeypatch):
         "jlu_booking.web.routes.auth",
         "jlu_booking.web.routes.dashboard",
         "jlu_booking.web.routes.admin",
+        "jlu_booking.web.routes.profile",
     ):
         monkeypatch.setattr(f"{module}.now_beijing", lambda: NOW, raising=False)
     token_key = Fernet.generate_key()

@@ -13,8 +13,10 @@ from jlu_booking.token_validation import TokenValidationResult
 from jlu_booking.web.accounts import AccountService
 from jlu_booking.web.app import AppServices, create_app
 from jlu_booking.web.audit import AuditService, ReauthenticationService
+from jlu_booking.web.availability import AvailabilityService
 from jlu_booking.web.credentials import CredentialService
 from jlu_booking.web.db import connect_database, migrate_database
+from jlu_booking.web.manual_booking import ManualBookingService
 from jlu_booking.web.scheduler import Scheduler
 from jlu_booking.web.security import CredentialCipher, PasswordService, ThrottleService
 from jlu_booking.web.sessions import SessionService
@@ -223,3 +225,92 @@ def test_local_http_shell_and_static_assets(harness):
         assert client.get("/register").status_code == 200
         assert client.get("/static/app.css").status_code == 200
         assert client.get("/static/app.js").status_code == 200
+
+
+def test_full_browser_workflow_uses_only_fake_school_functions(harness, monkeypatch):
+    for module in ("jlu_booking.web.routes.availability", "jlu_booking.web.routes.manual_booking",
+                   "jlu_booking.web.routes.profile"):
+        monkeypatch.setattr(f"{module}.now_beijing", lambda: FINISH_TIME, raising=False)
+    monkeypatch.setattr("jlu_booking.web.routes.daily_plans.now_beijing", lambda: CREATE_TIME)
+    calls = []
+    harness.services.availability = AvailabilityService(
+        harness.services.credentials, harness.services.throttles,
+        database_path=harness.settings.database_path,
+        query_func=lambda **kwargs: calls.append(("query", kwargs)) or {
+            "placeArray": [{"projectName": {"name": "1号场", "id": 1, "shortname": "ymq1"},
+                            "projectInfo": [{"state": 1, "starttime": "15:30", "endtime": "17:30"}]}],
+        },
+    )
+    harness.services.manual_booking = ManualBookingService(
+        harness.settings.database_path, harness.services.credentials,
+        can_book_func=lambda **kwargs: calls.append(("check", kwargs)) or {"msg": "success"},
+        companion_func=lambda **kwargs: calls.append(("companion", kwargs)) or {"id": 1},
+        book_place_func=lambda **kwargs: calls.append(("book", kwargs)) or {"msg": "success"},
+    )
+    harness.services.accounts.create_admin("owner", "owner password value", now=CREATE_TIME)
+    with TestClient(harness.app) as client, TestClient(harness.app) as admin:
+        register = client.get("/register")
+        created = client.post("/register", data={
+            "username": "smokeuser", "password": "correct horse battery staple",
+            "csrf_token": _csrf(register.text),
+        }, follow_redirects=False)
+        assert created.status_code == 303
+        login = client.get("/login")
+        assert client.post("/login", data={
+            "username": "smokeuser", "password": "correct horse battery staple",
+            "csrf_token": _csrf(login.text),
+        }, follow_redirects=False).headers["location"] == "/onboarding/token"
+        token_page = client.get("/onboarding/token")
+        assert client.post("/onboarding/token", data={
+            "token": "fake-smoke-token", "csrf_token": _csrf(token_page.text),
+        }, follow_redirects=False).headers["location"] == "/"
+        profile = client.get("/profile")
+        assert client.post("/profile/companion", data={
+            "student_number": "20260001", "csrf_token": _csrf(profile.text),
+        }, follow_redirects=False).status_code == 303
+        dashboard = client.get("/")
+        assert dashboard.status_code == 200 and "场地查询" in dashboard.text
+        assert client.get("/admin").status_code == 404
+
+        daily = client.get("/daily-plan")
+        saved = client.post("/daily-plan", data={
+            "csrf_token": _csrf(daily.text), "target_day": "tomorrow",
+            "venue": "前卫体育馆", "sport": "羽毛球",
+            "preferred_court_number": "3", "priority": ["15:30|17:30"], "mode": "scan",
+        }, follow_redirects=False)
+        assert saved.status_code == 303
+        assert client.post("/daily-plan/enable", data={
+            "csrf_token": _csrf(client.get("/daily-plan").text),
+        }, follow_redirects=False).status_code == 303
+        assert harness.connection.execute("SELECT status FROM booking_tasks WHERE source='daily'").fetchone()[0] == "scheduled"
+        assert client.post("/daily-plan/disable", data={
+            "csrf_token": _csrf(client.get("/daily-plan").text),
+        }, follow_redirects=False).status_code == 303
+        assert harness.connection.execute("SELECT status FROM booking_tasks WHERE source='daily'").fetchone()[0] == "cancelled"
+
+        queried = client.post("/availability/query", data={
+            "csrf_token": _csrf(dashboard.text), "venue": "前卫体育馆",
+            "sport": "羽毛球", "target_day": "today",
+        })
+        assert queried.status_code == 200
+        candidate = re.search(r'name="candidate_id" value="([^"]+)"', queried.text).group(1)
+        checked = client.post("/manual/precheck", data={
+            "csrf_token": _csrf(queried.text), "candidate_id": candidate,
+        })
+        assert checked.status_code == 200
+        fields = {key: re.search(rf'name="{key}" value="([^"]+)"', checked.text).group(1)
+                  for key in ("csrf_token", "attempt_id", "nonce")}
+        confirmed = client.post("/manual/submit", data=fields, follow_redirects=False)
+        assert confirmed.status_code == 303
+        result = client.get(confirmed.headers["location"])
+        assert "预约成功" in result.text
+        assert client.post("/manual/submit", data=fields, follow_redirects=False).status_code == 303
+        assert [name for name, _ in calls] == ["query", "check", "companion", "check", "book"]
+        assert "fake-smoke-token" not in result.text and "20260001" not in result.text
+
+        admin_login = admin.get("/login")
+        assert admin.post("/login", data={
+            "username": "owner", "password": "owner password value",
+            "csrf_token": _csrf(admin_login.text),
+        }, follow_redirects=False).headers["location"] == "/admin"
+        assert "用户管理" in admin.get("/admin").text
