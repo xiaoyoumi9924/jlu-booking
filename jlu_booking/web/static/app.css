@@ -58,22 +58,13 @@ th, td { text-align: left; padding: 10px; border-bottom: 1px solid #E1E7F0; vert
 .workspace-brand small { color: #c9d8f3; font-size: .72rem; font-weight: 700; letter-spacing: .08em; }
 .workspace-nav nav { display: grid; gap: 9px; }
 .workspace-nav-section { display: flex; justify-content: space-between; gap: 12px; color: #b7cbea; font-size: .77rem; font-weight: 700; padding: 9px 2px 6px; }
-.workspace-venue-section { margin-top: 12px; }
-.workspace-extra-section { margin-top: 6px; }
-.workspace-nav-card, .workspace-venue-card { display: flex; gap: 12px; align-items: flex-start; background: #103a78; border: 1px solid #315daa; padding: 12px; min-width: 0; }
+.workspace-nav-card { display: flex; gap: 12px; align-items: flex-start; background: #103a78; border: 1px solid #315daa; padding: 12px; min-width: 0; }
 .workspace-nav-card { min-height: 70px; }
 .workspace-nav-card.is-active { border-left: 5px solid #fff; background: #2d5ba3; padding-left: 8px; }
-.workspace-venue-card.is-active { border: 2px solid #1f9d68; padding: 11px; }
 .workspace-nav-icon { flex: 0 0 31px; height: 32px; display: grid; place-items: center; background: #24539a; color: #fff; font-size: .85rem; font-weight: 700; }
 .is-active > .workspace-nav-icon { background: #1f9d68; }
-.workspace-nav-card strong, .workspace-venue-card strong { display: block; font-size: .95rem; }
-.workspace-nav-card small, .workspace-venue-card small { display: block; margin-top: 5px; color: #b9ccea; font-size: .7rem; line-height: 1.35; }
-.workspace-venue-card.is-active small { color: #fff; }
-.workspace-venue-copy { min-width: 0; }
-.workspace-sport-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
-.workspace-sport-tags em { padding: 3px 6px; background: #1a4787; color: #c8d8f1; font-size: .67rem; font-style: normal; }
-.workspace-extra-link { display: block; padding: 10px 13px; background: #103a78; border-left: 3px solid transparent; font-weight: 700; font-size: .86rem; }
-.workspace-extra-link.is-active { border-left-color: #1f9d68; }
+.workspace-nav-card strong { display: block; font-size: .95rem; }
+.workspace-nav-card small { display: block; margin-top: 5px; color: #b9ccea; font-size: .7rem; line-height: 1.35; }
 .workspace-nav a:hover, .workspace-nav a:focus-visible { background-color: #2d5ba3; }
 .workspace-nav-footer { display: grid; gap: 8px; margin: auto 8px 0; padding-top: 30px; color: #d5e1f5; font-size: .8rem; }
 .workspace-nav-footer span { color: #bed0ec; font-size: .72rem; }
@@ -165,13 +156,10 @@ body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 320px); max-w
   .workspace-brand small { font-size: .9rem; }
   .workspace-nav-card { min-height: 102px; padding: 20px; }
   .workspace-nav-card.is-active { padding-left: 16px; }
-  .workspace-venue-card { min-height: 144px; padding: 20px; }
-  .workspace-venue-card.is-active { padding: 19px; }
   .workspace-nav-icon { flex-basis: 42px; height: 48px; font-size: 1rem; }
-  .workspace-nav-card strong, .workspace-venue-card strong { font-size: 1.15rem; }
-  .workspace-nav-card small, .workspace-venue-card small { font-size: .82rem; }
+  .workspace-nav-card strong { font-size: 1.15rem; }
+  .workspace-nav-card small { font-size: .82rem; }
   .workspace-nav-section { font-size: .9rem; padding-top: 20px; }
-  .workspace-sport-tags em { font-size: .78rem; }
   body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 500px); margin-left: 500px; padding: 0 48px 30px; }
   .workspace-head { min-height: 142px; margin: 0 -48px 34px; padding: 24px 54px; }
   .workspace-head h1 { font-size: 2rem; }
@@ -210,4 +198,210 @@ body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 320px); max-w
   .workspace-page-toolbar { align-items: stretch; flex-direction: column; }
   .card { padding: 18px; }
   .status-grid, .court-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* V4: four destination navigation and GUI-style booking controls. */
+.workspace-nav-card { align-items: center; }
+.workspace-nav-card.is-active > .workspace-nav-icon { background: #fff; color: #144399; }
+.workspace-nav-card.is-active { border-left-color: #fff; }
+.query-venue-choices { margin: 0 0 20px; }
+.query-venue-links a { text-decoration: none; display: inline-flex; align-items: center; }
+.query-venue-links a.is-selected { background: #144399; color: #fff; }
+.booking-page-intro { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin: 4px 0 16px; padding: 2px 4px; }
+.booking-page-intro h2 { margin: 0 0 8px; color: #172033; font-size: 1.45rem; }
+.booking-page-intro p:not(.eyebrow) { margin: 0; color: #60708c; font-size: .88rem; }
+.booking-page-intro .button { border-radius: 0; white-space: nowrap; }
+.booking-panel { background: #fff; border: 1px solid #dce5f3; }
+.booking-panel form { display: block; }
+.booking-panel-body { padding: 26px 32px; }
+.booking-venue-line { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.booking-venue-line strong, .booking-label, .booking-field legend { color: #172033; font-size: .9rem; font-weight: 800; }
+.booking-venue-badge { padding: 9px 15px; background: #144399; color: #fff; font-size: .86rem; font-weight: 800; }
+.booking-help { color: #60708c; font-size: .82rem; line-height: 1.6; margin: 9px 0 0; }
+.booking-field { display: block; margin: 22px 0 0; min-width: 0; }
+.booking-field .booking-label { display: block; margin-bottom: 10px; }
+.booking-choices { display: flex; flex-wrap: wrap; gap: 10px; }
+.booking-field > [data-choice-group] { display: none; }
+.js-ready .booking-field > [data-choice-group] { display: flex; }
+.booking-choice, .booking-radio span { display: inline-flex; align-items: center; justify-content: center; min-width: 100px; min-height: 45px; padding: 9px 16px; border: 1px solid transparent; border-radius: 0; background: #f1f5fb; color: #526078; font-size: .88rem; font-weight: 800; cursor: pointer; }
+.booking-choice[aria-pressed="true"], .booking-radio input:checked + span { background: #144399; color: #fff; }
+.booking-choice:hover, .booking-radio:hover span { border-color: #6287c4; }
+.booking-choice[hidden] { display: none; }
+.booking-native { max-width: 360px; font-size: .8rem; color: #60708c; }
+.booking-native select { width: 100%; }
+.js-ready [data-booking-form] .booking-native { display: none; }
+.booking-selection-summary { color: #144399; font-size: .85rem; font-weight: 800; margin: 18px 0 0; }
+.booking-two-col { display: grid; grid-template-columns: minmax(0, 3fr) minmax(130px, 1fr); gap: 22px; }
+.booking-two-col .booking-field { margin-top: 24px; }
+.booking-two-col input { width: 100%; border-radius: 0; background: #f7f9fd; }
+.booking-field small { color: #60708c; font-size: .76rem; font-weight: 500; }
+.booking-readiness { display: grid; gap: 5px; min-height: 47px; padding: 9px 12px; background: #f7f9fd; border: 1px solid #dce5f3; color: #176746; font-size: .85rem; }
+.booking-readiness span { color: #60708c; font-size: .76rem; }
+.booking-readiness a { color: #144399; }
+.booking-priority, .booking-mode { border: 0; padding: 0; }
+.booking-priority .booking-help, .booking-mode .booking-help { margin: 5px 0 9px; }
+.booking-priority-list { max-width: 100%; padding: 6px 12px; border: 1px solid #dce5f3; background: #f7f9fd; }
+.booking-priority .priority-row { grid-template-columns: minmax(0, 1fr) 34px 34px; gap: 5px; border-bottom: 1px solid #e2e9f3; }
+.booking-priority .priority-row:last-child { border: 0; }
+.booking-priority .check-row { display: flex; align-items: center; gap: 10px; min-height: 39px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: .9rem; font-weight: 700; }
+.booking-priority .mini { min-height: 30px; padding: 3px 7px; background: transparent; }
+.booking-radio { display: block; position: relative; }
+.booking-radio input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.booking-radio input:focus-visible + span { outline: 3px solid #6fa1ff; outline-offset: 2px; }
+.booking-submit-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px 32px; background: #f6f9fd; border-top: 1px solid #dce5f3; }
+.booking-submit-bar span { color: #60708c; font-size: .82rem; }
+.booking-submit-bar button { border-radius: 0; white-space: nowrap; }
+.booking-schedule-note { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin: 16px 0; padding: 14px 18px; border-left: 4px solid #144399; background: #eaf1ff; color: #526078; font-size: .81rem; }
+.booking-schedule-note strong { color: #144399; }
+@media (min-width: 1800px) {
+  .booking-panel-body { padding: 32px 38px; }
+  .booking-choice, .booking-radio span { min-height: 52px; min-width: 112px; }
+  .booking-field { margin-top: 25px; }
+}
+@media (max-width: 700px) {
+  .booking-two-col { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .booking-page-intro { align-items: flex-start; flex-direction: column; }
+  .booking-panel-body { padding: 20px 18px; }
+  .booking-submit-bar { flex-direction: column; align-items: stretch; padding: 16px 18px; }
+  .booking-submit-bar button { width: 100%; }
+  .booking-choice { min-width: 0; }
+}
+
+/* Daily automation presents the saved plan and the execution switch separately. */
+.daily-status-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px 24px; padding: 23px 28px; background: #fff; border: 1px solid #dce5f3; border-left: 5px solid #144399; }
+.daily-status-main h2 { margin: 2px 0 7px; color: #172033; font-size: 1.45rem; }
+.daily-status-main p:last-child { margin: 0; color: #60708c; font-size: .84rem; line-height: 1.55; }
+.daily-status-action { align-self: center; }
+.daily-status-action form { justify-items: end; }
+.daily-status-action button { border-radius: 0; white-space: nowrap; }
+.daily-status-action .check-row { font-size: .79rem; }
+.daily-status-wait { display: inline-block; padding: 10px 15px; color: #60708c; background: #f1f5fb; font-size: .83rem; }
+.daily-status-facts { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #e2e9f3; padding-top: 18px; gap: 14px; }
+.daily-status-facts div { display: grid; gap: 5px; min-width: 0; }
+.daily-status-facts span { color: #60708c; font-size: .76rem; }
+.daily-status-facts strong { color: #172033; font-size: .87rem; overflow-wrap: anywhere; }
+.daily-status-facts a { color: #144399; }
+.daily-guidance { margin: 10px 2px 26px; color: #6a5770; font-size: .82rem; }
+.daily-confirm { display: flex; gap: 8px; margin-top: 12px; font-size: .8rem; }
+.daily-confirm input { flex: 0 0 auto; }
+
+/* Personal center keeps private values masked and history clearly separate. */
+.profile-identity { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px 28px; background: #fff; border: 1px solid #dce5f3; }
+.profile-identity h2 { margin: 2px 0 7px; color: #172033; font-size: 1.45rem; }
+.profile-identity p:last-child { margin: 0; color: #60708c; font-size: .84rem; }
+.profile-readiness { display: flex; gap: 8px; flex-wrap: wrap; }
+.profile-readiness span { padding: 8px 10px; background: #fff4e7; color: #98570f; font-size: .78rem; font-weight: 800; white-space: nowrap; }
+.profile-readiness span.is-ready { background: #e8f7f0; color: #147a55; }
+.profile-section-title { margin: 28px 3px 16px; }
+.profile-section-title h2 { margin: 2px 0 7px; color: #172033; font-size: 1.3rem; }
+.profile-section-title p:last-child { margin: 0; color: #60708c; font-size: .83rem; }
+.profile-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.profile-card { min-width: 0; padding: 22px; background: #fff; border: 1px solid #dce5f3; }
+.profile-card-head { display: flex; align-items: center; gap: 12px; }
+.profile-card-icon { flex: 0 0 35px; height: 35px; display: grid; place-items: center; background: #eaf1ff; color: #144399; font-weight: 800; }
+.profile-card h3 { margin: 0 0 3px; color: #172033; font-size: 1.04rem; }
+.profile-card-head p { margin: 0; color: #60708c; font-size: .75rem; }
+.profile-current { display: grid; gap: 6px; min-height: 73px; margin: 20px 0; padding: 12px; background: #f7f9fd; font-size: .81rem; }
+.profile-current span { color: #60708c; }
+.profile-current strong { overflow-wrap: anywhere; }
+.profile-card form { gap: 10px; }
+.profile-card label { color: #172033; font-size: .85rem; }
+.profile-card input, .profile-card button, .profile-card .button { width: 100%; border-radius: 0; }
+.profile-security .button { margin-top: 1px; }
+.profile-history { margin-top: 24px; }
+@media (max-width: 1100px) { .profile-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) {
+  .daily-status-panel { grid-template-columns: minmax(0, 1fr); padding: 19px; }
+  .daily-status-facts { grid-template-columns: minmax(0, 1fr); }
+  .daily-status-action form { justify-items: stretch; }
+  .daily-status-action button { width: 100%; white-space: normal; }
+  .profile-identity { flex-direction: column; align-items: flex-start; padding: 19px; }
+  .profile-cards { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The administrator console has its own shell and information hierarchy. */
+.admin-nav { position: fixed; inset: 0 auto 0 0; z-index: 3; width: 272px; overflow-y: auto; background: #112e5e; color: #fff; }
+.admin-nav summary { display: none; }
+.admin-nav-inner { min-height: 100%; display: flex; flex-direction: column; padding: 25px 16px; }
+.admin-brand { display: grid; justify-items: start; gap: 5px; margin: 0 8px 24px; padding-bottom: 22px; border-bottom: 1px solid #36517e; color: #fff; text-decoration: none; }
+.admin-logo { display: grid; place-items: center; width: 62px; height: 62px; margin-bottom: 9px; background: #fff; }
+.admin-logo img { width: 59px; height: 59px; object-fit: contain; }
+.admin-brand strong { font-size: 1.05rem; }
+.admin-brand small { color: #adc4e8; font-size: .74rem; }
+.admin-nav nav { display: grid; gap: 7px; }
+.admin-nav-label { padding: 7px 12px; color: #adc4e8; font-size: .76rem; font-weight: 700; }
+.admin-nav-card { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 9px 12px; border-left: 3px solid transparent; background: #173c76; color: #dce8fa; text-decoration: none; }
+.admin-nav-card span { flex: 0 0 29px; height: 29px; display: grid; place-items: center; background: #28528d; font-size: .8rem; }
+.admin-nav-card strong { font-size: .9rem; }
+.admin-nav-card.is-active { border-left-color: #fff; background: #2d5899; color: #fff; }
+.admin-nav-card.is-active span { background: #fff; color: #173c76; }
+.admin-nav-card:hover, .admin-nav-card:focus-visible { background: #3968ab; }
+.admin-nav-foot { margin: auto 10px 0; padding-top: 26px; color: #abc0de; font-size: .73rem; }
+body:has(.admin-nav) .page.admin-workspace { width: calc(100% - 272px); max-width: none; margin: 0 0 0 272px; padding: 0 30px 34px; }
+.admin-workspace-head { display: flex; justify-content: space-between; align-items: center; gap: 15px; min-height: 110px; margin: 0 -30px 26px; padding: 17px 32px; background: #fff; border-bottom: 1px solid #dce5f3; }
+.admin-workspace-head p { margin: 0 0 5px; color: #2d61b7; font-size: .78rem; font-weight: 800; }
+.admin-workspace-head h1 { margin: 0; color: #172033; font-size: 1.5rem; }
+.admin-head-actions { display: flex; align-items: center; gap: 13px; color: #526078; font-size: .85rem; }
+.admin-head-actions form { display: block; }
+.admin-head-actions button { min-height: 34px; padding: 5px 10px; border-radius: 0; font-size: .8rem; }
+.admin-intro, .admin-content-intro { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin: 0 0 20px; }
+.admin-intro h2, .admin-content-intro h2 { margin: 0 0 7px; color: #172033; font-size: 1.4rem; }
+.admin-intro p:last-child, .admin-content-intro p:last-child { margin: 0; color: #60708c; font-size: .86rem; }
+.admin-intro .button, .admin-content-intro .button { border-radius: 0; white-space: nowrap; }
+.admin-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.admin-metric { display: grid; align-content: start; min-height: 170px; padding: 22px; background: #fff; border: 1px solid #dce5f3; border-top: 4px solid #144399; }
+.admin-metric > span { color: #60708c; font-size: .8rem; font-weight: 700; }
+.admin-metric > strong { margin: 12px 0 2px; color: #172033; font-size: 2.1rem; line-height: 1; }
+.admin-metric small { color: #60708c; font-size: .8rem; font-weight: 600; }
+.admin-metric p { margin: 6px 0 12px; color: #60708c; font-size: .78rem; }
+.admin-metric a { color: #144399; font-size: .82rem; font-weight: 800; text-decoration: none; }
+.admin-shortcuts { margin-top: 24px; padding: 24px; background: #fff; border: 1px solid #dce5f3; }
+.admin-shortcut-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
+.admin-shortcut-grid a { display: grid; gap: 12px; min-height: 118px; padding: 17px; border: 1px solid #dce5f3; color: #172033; text-decoration: none; }
+.admin-shortcut-grid span { color: #60708c; font-size: .8rem; }
+.admin-shortcut-grid b { color: #144399; font-size: .8rem; }
+.admin-table-card, .admin-detail-card { background: #fff; border: 1px solid #dce5f3; }
+.admin-table-head { display: flex; justify-content: space-between; gap: 12px; padding: 17px 20px; border-bottom: 1px solid #dce5f3; }
+.admin-table-head strong { color: #172033; }
+.admin-table-head span { color: #60708c; font-size: .8rem; }
+.admin-table-card table { min-width: 800px; }
+.admin-table-card th { padding: 13px 16px; color: #526078; background: #f6f8fc; font-size: .78rem; white-space: nowrap; }
+.admin-table-card td { padding: 15px 16px; font-size: .83rem; }
+.admin-table-card td small { display: block; margin-top: 4px; color: #60708c; }
+.admin-table-card td.masked { max-width: 205px; overflow-wrap: anywhere; background: transparent; }
+.admin-user-link { color: #144399; font-weight: 800; }
+.admin-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.admin-row-actions form { display: block; }
+.admin-row-actions button { min-height: 32px; padding: 5px 8px; border-radius: 0; white-space: nowrap; }
+.admin-secret-output { display: block; margin-top: 8px; max-width: 290px; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, monospace; color: #8a2631; }
+.admin-secret-output:empty { display: none; }
+.admin-empty { margin: 0; padding: 20px; color: #60708c; text-align: center; }
+.admin-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.admin-detail-card { min-width: 0; padding: 23px; }
+.admin-detail-card h2 { margin-top: 0; }
+.admin-detail-card .log-region { overflow-wrap: anywhere; }
+.admin-reauth-card { max-width: 560px; }
+.admin-reauth-card button { border-radius: 0; }
+@media (min-width: 1800px) {
+  .admin-nav { width: 340px; }
+  .admin-nav-inner { padding: 34px 23px; }
+  .admin-nav-card { min-height: 62px; }
+  body:has(.admin-nav) .page.admin-workspace { width: calc(100% - 340px); margin-left: 340px; padding: 0 45px 40px; }
+  .admin-workspace-head { margin: 0 -45px 33px; padding: 22px 48px; min-height: 125px; }
+}
+@media (max-width: 1000px) { .admin-metrics, .admin-shortcut-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .admin-nav { position: static; width: 100%; overflow: visible; }
+  .admin-nav summary { display: list-item; padding: 12px 20px; font-weight: 700; cursor: pointer; }
+  .admin-nav-inner { min-height: auto; padding: 8px 17px 20px; }
+  .admin-brand, .admin-nav-foot { display: none; }
+  body:has(.admin-nav) .page.admin-workspace { width: 100%; margin: 0; padding: 0 16px 24px; }
+  .admin-workspace-head { margin: 0 -16px 22px; padding: 17px 20px; }
+}
+@media (max-width: 650px) {
+  .admin-workspace-head, .admin-intro, .admin-content-intro { align-items: flex-start; flex-direction: column; }
+  .admin-head-actions { flex-wrap: wrap; }
+  .admin-metrics, .admin-shortcut-grid, .admin-detail-grid { grid-template-columns: minmax(0, 1fr); }
+  .admin-shortcuts { padding: 18px; }
+  .admin-intro .button, .admin-content-intro .button { white-space: normal; }
 }

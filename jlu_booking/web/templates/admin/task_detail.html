@@ -1,9 +1,10 @@
 {% extends "admin/shell.html" %}
 {% block title %}任务 #{{ task.id }} · 管理后台{% endblock %}
+{% block admin_heading %}任务详情{% endblock %}
 {% block content %}
-<div class="dashboard-head"><h1>任务 #{{ task.id }}</h1><a href="/admin/tasks">返回任务列表</a></div>
-<div class="shell-grid">
-  <section class="card">
+<div class="admin-content-intro"><div><p class="eyebrow">运行记录</p><h2>任务 #{{ task.id }}</h2><p>{{ username }} · {{ task.execution_date }} · {{ task.venue }} · {{ task.sport }}</p></div><a class="button secondary" href="/admin/tasks">返回任务列表</a></div>
+<div class="admin-detail-grid">
+  <section class="admin-detail-card">
     <h2>任务信息</h2>
     <p>用户：{{ username }}</p>
     <p>状态：<span class="badge status-{{ task.status }}">{{ task.status }}</span></p>
@@ -23,7 +24,7 @@
     <p class="warning">停止任务不代表预约一定未提交；若请求已经发出，请到学校系统核对最终结果。</p>
     {% endif %}
   </section>
-  <section class="card">
+  <section class="admin-detail-card">
     <h2>脱敏运行日志</h2>
     <pre class="log-region">{% if log_lines %}{{ log_lines | join('\n') }}{% else %}暂无日志{% endif %}</pre>
   </section>

@@ -1,13 +1,23 @@
 {% extends "base.html" %}
+{% block header %}{% endblock %}
+{% block page_class %}admin-workspace{% endblock %}
 {% block navigation %}
-<details open class="workspace-nav admin-nav" data-admin-nav>
+{% set admin_path = request.url.path %}
+<details open class="admin-nav" data-admin-nav>
   <summary>管理导航</summary>
-  <nav aria-label="管理导航">
-    <span class="nav-label">管理功能</span>
-    <a href="/admin">概览</a>
-    <a href="/admin/users">用户</a>
-    <a href="/admin/tasks">任务</a>
-    <a href="/admin/audit">审计</a>
-  </nav>
+  <div class="admin-nav-inner">
+    <a class="admin-brand" href="/admin" aria-label="管理员概览"><span class="admin-logo"><img src="{{ url_for('static', path='/JLU_LOGO.png') }}" alt="吉林大学校徽"></span><strong>体育馆预约助手</strong><small>管理员工作台</small></a>
+    <nav aria-label="管理导航">
+      <div class="admin-nav-label">管理功能</div>
+      <a class="admin-nav-card{% if admin_path == '/admin' %} is-active{% endif %}" href="/admin" {% if admin_path == '/admin' %}aria-current="page"{% endif %}><span>总</span><strong>管理概览</strong></a>
+      <a class="admin-nav-card{% if admin_path.startswith('/admin/users') or admin_path == '/admin/reauth' %} is-active{% endif %}" href="/admin/users" {% if admin_path.startswith('/admin/users') or admin_path == '/admin/reauth' %}aria-current="page"{% endif %}><span>人</span><strong>用户管理</strong></a>
+      <a class="admin-nav-card{% if admin_path.startswith('/admin/tasks') %} is-active{% endif %}" href="/admin/tasks" {% if admin_path.startswith('/admin/tasks') %}aria-current="page"{% endif %}><span>约</span><strong>预约任务</strong></a>
+      <a class="admin-nav-card{% if admin_path.startswith('/admin/audit') %} is-active{% endif %}" href="/admin/audit" {% if admin_path.startswith('/admin/audit') %}aria-current="page"{% endif %}><span>审</span><strong>审计记录</strong></a>
+    </nav>
+    <p class="admin-nav-foot">管理操作会留下审计记录</p>
+  </div>
 </details>
+{% endblock %}
+{% block content_header %}
+<header class="admin-workspace-head"><div><p>管理员工作台</p><h1>{% block admin_heading %}管理概览{% endblock %}</h1></div><div class="admin-head-actions"><span>{{ admin.username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary">退出登录</button></form></div></header>
 {% endblock %}

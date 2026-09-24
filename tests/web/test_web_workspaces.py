@@ -167,15 +167,20 @@ def test_user_workspace_uses_gui_brand_and_keeps_admin_separate(workspace):
     html = user_client.get("/").text
     assert 'class="workspace-brand"' in html
     assert "JILIN UNIVERSITY" in html
-    assert "服务场馆" in html
+    nav = html.split('<nav aria-label="用户导航">', 1)[1].split('</nav>', 1)[0]
+    assert "服务场馆" not in nav
+    assert "更多功能" not in nav
+    assert nav.count('class="workspace-nav-card') == 4
+    for href in ('href="/"', 'href="/tasks/new"', 'href="/daily-plan"', 'href="/profile"'):
+        assert href in nav
     assert 'data-user-nav' in html and 'data-admin-nav' not in html
     assert 'class="topbar"' not in html
     assert 'class="workspace-head"' in html
     assert 'action="/logout"' in html
-    assert 'href="/?venue=' in html
     admin_html = admin_client.get("/admin").text
     assert 'class="workspace-brand"' not in admin_html
-    assert 'class="topbar"' in admin_html
+    assert 'class="admin-workspace-head"' in admin_html
+    assert 'data-admin-nav' in admin_html
 
 
 def test_venue_link_reloads_matching_sport_choices(workspace):
@@ -305,13 +310,84 @@ def test_personal_center_history_paginates_and_disabled_user_cannot_read(workspa
     assert client.get("/profile", follow_redirects=False).headers["location"] == "/login"
 
 
-def test_non_query_pages_do_not_claim_an_unrelated_venue_is_selected(workspace):
+def test_non_query_pages_have_no_global_venue_sidebar(workspace):
     client, _admin_client, _services = workspace
     _login(client, "alice", "long password value")
     profile = client.get("/profile").text
-    assert 'data-set-venue="前卫体育馆"' in profile
-    assert 'data-set-venue="宋治平体育馆"' in profile
-    assert "✓ 当前选中" not in profile
+    assert 'data-set-venue=' not in profile
     query = client.get("/?venue=宋治平体育馆").text
-    assert 'data-set-venue="宋治平体育馆"' in query
-    assert query.count("✓ 当前选中") == 1
+    assert 'data-selected-venue="宋治平体育馆"' in query
+    assert 'data-set-venue=' not in query
+
+
+def test_auto_booking_form_uses_gui_panel_without_changing_submission_fields(workspace):
+    client, _admin_client, _services = workspace
+    _login(client, "alice", "long password value")
+    html = client.get("/tasks/new").text
+    assert 'data-booking-form' in html
+    assert 'data-choice-group="venue"' in html
+    assert 'data-choice-group="sport"' in html
+    assert 'data-choice-group="target_day"' in html
+    assert 'name="preferred_court_number"' in html
+    assert 'name="priority"' in html
+    assert 'name="mode"' in html
+    assert 'action="/tasks/new"' in html
+    assert "重点时间（从上到下优先）" in html
+    assert "保存预约任务" in html
+    assert "立即启动" not in html
+
+
+def test_daily_booking_explains_separate_save_and_enable_steps(workspace):
+    client, _admin_client, _services = workspace
+    _login(client, "alice", "long password value")
+    html = client.get("/daily-plan").text
+    assert 'class="daily-status-panel"' in html
+    assert html.index("每日执行状态") < html.index('action="/daily-plan"')
+    assert 'action="/daily-plan"' in html
+    assert "保存每日配置" in html
+    assert "先保存配置，再开启每日执行" in html
+    assert 'data-choice-group="venue"' in html
+    assert 'data-choice-group="sport"' in html
+
+
+def test_personal_center_separates_credentials_and_owned_history(workspace):
+    client, _admin_client, _services = workspace
+    _login(client, "alice", "long password value")
+    html = client.get("/profile").text
+    assert 'class="profile-identity"' in html
+    assert "凭据管理" in html
+    assert 'action="/profile/token"' in html
+    assert 'action="/profile/companion"' in html
+    assert "我的预约记录" in html
+    assert "alice-private-token" not in html
+
+
+def test_admin_console_has_independent_clear_navigation_and_overview(workspace):
+    _client, admin_client, _services = workspace
+    _login(admin_client, "owner", "owner password value")
+    overview = admin_client.get("/admin").text
+    assert 'class="admin-workspace-head"' in overview
+    assert 'class="admin-nav-card' in overview
+    assert "管理概览" in overview
+    assert "待绑定用户" in overview
+    assert "运行中任务" in overview
+    users = admin_client.get("/admin/users").text
+    assert 'class="admin-workspace-head"' in users
+    assert 'action="/admin/users/' in users
+    assert 'data-password-output=' in users
+    assert "用户管理" in users
+
+
+def test_edit_auto_booking_preserves_saved_priority_order(workspace, monkeypatch):
+    client, _admin_client, services = workspace
+    monkeypatch.setattr("jlu_booking.web.routes.task_routes.now_beijing", lambda: NOW)
+    _login(client, "alice", "long password value")
+    user = services.accounts.find_by_username("alice")
+    companion = services.credentials.save_companion(user.id, "20260001", now=NOW)
+    task = services.tasks.create(user.id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", companion.id, 2,
+        [["15:30", "17:30"], ["17:30", "19:30"]], False,
+    ), now=NOW)
+    html = client.get(f"/tasks/{task.id}/edit").text
+    assert html.index('value="15:30|17:30"') < html.index('value="17:30|19:30"')
+    assert 'name="preferred_court_number" value="2"' in html

@@ -1,3 +1,10 @@
 {% extends "admin/shell.html" %}
-{% block title %}全部任务 · JLU 体育馆预约{% endblock %}
-{% block content %}<div class="dashboard-head"><h1>全部预约任务</h1><a href="/admin">返回后台</a></div><div class="table-wrap card"><table><thead><tr><th>ID</th><th>用户</th><th>日期</th><th>场馆</th><th>状态</th><th>操作</th></tr></thead><tbody>{% for task in tasks %}<tr><td><a href="/admin/tasks/{{ task.id }}">#{{ task.id }}</a></td><td>{{ task.username }}</td><td>{{ task.execution_date }}</td><td>{{ task.venue }} · {{ task.sport }}</td><td>{{ task.status }}</td><td>{% if task.status == 'running' %}<form method="post" action="/admin/tasks/{{ task.id }}/stop" data-confirm-stop><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger">请求停止</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endblock %}
+{% block title %}预约任务 · JLU 体育馆预约{% endblock %}
+{% block admin_heading %}预约任务{% endblock %}
+{% block content %}
+{% set status_labels = {'scheduled': '已排程', 'running': '运行中', 'success': '预约成功', 'cancelled': '已取消', 'stopped': '已停止', 'error': '运行出错', 'no_result': '未找到场地', 'submission_unknown': '结果不明'} %}
+<div class="admin-content-intro"><div><p class="eyebrow">运行监控</p><h2>全部任务</h2><p>查看执行状态和脱敏运行日志。停止请求无法撤回已经提交的预约。</p></div></div>
+<section class="admin-table-card" aria-label="预约任务列表"><div class="admin-table-head"><strong>任务列表</strong><span>{{ tasks|length }} 条记录</span></div><div class="table-wrap"><table><thead><tr><th>任务</th><th>用户</th><th>执行日</th><th>场馆 / 项目</th><th>状态</th><th>操作</th></tr></thead><tbody>
+  {% for task in tasks %}<tr><td><a class="admin-user-link" href="/admin/tasks/{{ task.id }}">#{{ task.id }}</a></td><td>{{ task.username }}</td><td>{{ task.execution_date }}</td><td>{{ task.venue }} · {{ task.sport }}</td><td><span class="badge status-{{ task.status }}">{{ status_labels.get(task.status, task.status) }}</span></td><td>{% if task.status == 'running' %}<form method="post" action="/admin/tasks/{{ task.id }}/stop" data-confirm-stop><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger mini">请求停止</button></form>{% else %}<a href="/admin/tasks/{{ task.id }}">查看详情</a>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% if not tasks %}<p class="admin-empty">暂无预约任务。</p>{% endif %}</section>
+{% endblock %}

@@ -66,9 +66,11 @@ def _context(request, session, user, *, error=None):
         status_text = f"最近结果：{task.status}"
     else:
         status_text = "已开启，当前执行日未获得名额"
+    priorities = list(plan.time_priority) if plan else list(DEFAULT_TIME_PRIORITY)
+    priorities.extend(item for item in DEFAULT_TIME_PRIORITY if item not in priorities)
     return {
         "csrf_token": session.csrf_token, "user": user, "plan": plan, "task": task,
-        "error": error, "venues": VENUES, "priority_options": DEFAULT_TIME_PRIORITY,
+        "error": error, "venues": VENUES, "priority_options": priorities,
         "execution_date": execution_date, "target_date": target_date,
         "companion_name": companion_name, "status_text": status_text,
     }

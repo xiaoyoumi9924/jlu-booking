@@ -1,14 +1,19 @@
 {% extends "admin/shell.html" %}
 {% block title %}用户管理 · JLU 体育馆预约{% endblock %}
+{% block admin_heading %}用户管理{% endblock %}
 {% block content %}
-<div class="dashboard-head"><h1>用户管理</h1><a href="/admin">返回后台</a></div>
-<div class="table-wrap card"><table><thead><tr><th>用户</th><th>状态</th><th>Token</th><th>同行人</th><th>操作</th></tr></thead><tbody>
-{% for user, masked_token, companion in users %}<tr><td><a href="/admin/users/{{ user.id }}">{{ user.username }}</a></td><td>{{ user.status }}</td><td class="masked">{{ masked_token }}</td><td>{{ companion }}</td><td><div class="actions">
-{% if user.status == 'active' %}<form method="post" action="/admin/users/{{ user.id }}/disable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">停用</button></form>{% endif %}
-{% if user.status == 'disabled' %}<form method="post" action="/admin/users/{{ user.id }}/enable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">启用</button></form>{% endif %}
-{% if user.status == 'pending_token' %}<form method="post" action="/admin/users/{{ user.id }}/delete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger">删除</button></form>{% endif %}
-<form method="post" action="/admin/users/{{ user.id }}/reset-password" data-once-response><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">重置密码</button></form>
-<button type="button" class="secondary" data-token-reveal="/admin/users/{{ user.id }}/token/reveal" data-csrf="{{ csrf_token }}">查看 Token</button>
-</div><output data-token-output="{{ user.id }}"></output></td></tr>{% endfor %}
-</tbody></table></div>
+{% set status_labels = {'active': '正常', 'disabled': '已停用', 'pending_token': '待绑定 Token'} %}
+<div class="admin-content-intro"><div><p class="eyebrow">账号列表</p><h2>网页账号</h2><p>查看账号状态与凭据准备情况。完整 Token 需先重新验证管理员密码。</p></div><a class="button secondary" href="/admin/reauth">重新验证密码</a></div>
+<section class="admin-table-card" aria-label="网页用户列表"><div class="admin-table-head"><strong>网页用户</strong><span>{{ users|length }} 个账号</span></div>
+  <div class="table-wrap"><table><thead><tr><th>用户</th><th>状态</th><th>Token</th><th>同行人</th><th>管理操作</th></tr></thead><tbody>
+  {% for target, masked_token, companion in users %}<tr><td><a class="admin-user-link" href="/admin/users/{{ target.id }}">{{ target.username }}</a><small>#{{ target.id }}</small></td><td><span class="badge status-{{ target.status }}">{{ status_labels.get(target.status, target.status) }}</span></td><td class="masked">{{ masked_token }}</td><td>{{ companion }}</td><td><div class="admin-row-actions">
+    {% if target.status == 'active' %}<form method="post" action="/admin/users/{{ target.id }}/disable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">停用</button></form>{% endif %}
+    {% if target.status == 'disabled' %}<form method="post" action="/admin/users/{{ target.id }}/enable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">启用</button></form>{% endif %}
+    {% if target.status == 'pending_token' %}<form method="post" action="/admin/users/{{ target.id }}/delete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger mini">删除</button></form>{% endif %}
+    <form method="post" action="/admin/users/{{ target.id }}/reset-password" data-once-response data-reset-user-id="{{ target.id }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">重置密码</button></form>
+    <button type="button" class="secondary mini" data-token-reveal="/admin/users/{{ target.id }}/token/reveal" data-csrf="{{ csrf_token }}">查看 Token</button>
+  </div><output class="admin-secret-output" data-token-output="{{ target.id }}" aria-live="polite"></output><output class="admin-secret-output" data-password-output="{{ target.id }}" aria-live="polite"></output></td></tr>{% endfor %}
+  </tbody></table></div>
+  {% if not users %}<p class="admin-empty">暂无网页用户。</p>{% endif %}
+</section>
 {% endblock %}

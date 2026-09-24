@@ -1,46 +1,12 @@
 {% extends "user_shell.html" %}
 {% block title %}每日自动预约 · JLU 体育馆预约{% endblock %}
+{% block workspace_kicker %}定期任务{% endblock %}
 {% block workspace_title %}每日自动预约{% endblock %}
 {% block content %}
-<div class="workspace-page-toolbar"><p class="muted">状态：<strong>{{ status_text }}</strong></p><a class="button secondary" href="/tasks/new">创建一次性预约</a></div>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-<div class="shell-grid">
-  <section class="card workspace-form-card">
-    <h2>预约配置</h2>
-    <p class="muted">保存配置不会自动开启每日任务。开启后，按开启时间先到先得分配每日名额。</p>
-    <form method="post" action="/daily-plan">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>预约目标日<select name="target_day" data-target-day>
-        <option value="today" {% if not plan or plan.target_day == 'today' %}selected{% endif %}>执行当天</option>
-        <option value="tomorrow" {% if plan and plan.target_day == 'tomorrow' %}selected{% endif %}>执行次日</option>
-      </select></label>
-      <label>场馆<select name="venue" data-venue-select>
-        {% for venue_name in venues %}<option value="{{ venue_name }}" {% if plan and plan.venue == venue_name %}selected{% endif %}>{{ venue_name }}</option>{% endfor %}
-      </select></label>
-      <label>运动项目<select name="sport" data-sport-select>
-        {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" data-venue="{{ venue_name }}" {% if (plan and plan.venue == venue_name and plan.sport == sport_name) or (not plan and venue_name == '前卫体育馆' and sport_name == '羽毛球') %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}
-      </select></label>
-      <p>同行人：{% if companion_name %}{{ companion_name }}（已验证）{% else %}<a href="/profile">请先验证同行人</a>{% endif %}</p>
-      <label>首选场地号<input type="number" min="1" name="preferred_court_number" value="{{ plan.preferred_court_number if plan else 3 }}" required></label>
-      <fieldset><legend>时间优先级（可上下调整）</legend>
-        {% for start, end in (plan.time_priority if plan else priority_options) %}
-        <div class="priority-row"><label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" checked><span>{{ start }}–{{ end }}</span></label><button type="button" class="mini secondary" data-priority-up aria-label="上移 {{ start }}–{{ end }}">上移</button><button type="button" class="mini secondary" data-priority-down aria-label="下移 {{ start }}–{{ end }}">下移</button></div>
-        {% endfor %}
-      </fieldset>
-      <fieldset><legend>执行模式</legend>
-        <label class="check-row"><input type="radio" name="mode" value="scan" {% if not plan or not plan.real_booking_enabled %}checked{% endif %}>仅扫描，不提交预约</label>
-        <label class="check-row warning"><input type="radio" name="mode" value="real" {% if plan and plan.real_booking_enabled %}checked{% endif %}>真实预约，会向学校系统提交</label>
-        <label class="check-row"><input type="checkbox" name="confirm_real" value="yes">若选择真实预约，我确认保存此设置</label>
-      </fieldset>
-      <button type="submit">保存每日配置</button>
-    </form>
-  </section>
-  <aside class="card summary-card workspace-info-card" data-execution-date="{{ execution_date }}">
-    <h2>执行与状态</h2>
-    <p>下一可执行日：<strong>{{ execution_date }}</strong> 07:27（北京时间）</p>
-    <p>预约目标日：<strong data-target-date>{{ target_date }}</strong></p>
-    {% if task %}<p>当前任务：<a href="/tasks/{{ task.id }}">{{ task.status }}</a></p>{% endif %}
-    <p class="muted">07:27 后不再新建当天任务。开启但未获得名额时，今天不会运行；关闭会取消尚未开始的每日任务。</p>
+<section class="daily-status-panel" data-execution-date="{{ execution_date }}" aria-labelledby="daily-status-heading">
+  <div class="daily-status-main"><p class="eyebrow">每日执行状态</p><h2 id="daily-status-heading">{{ status_text }}</h2><p>先保存配置，再开启每日执行。开启后按开启时间先到先得分配当日名额。</p></div>
+  <div class="daily-status-action">
     {% if plan and plan.enabled %}
     <form method="post" action="/daily-plan/disable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger">关闭每日自动预约</button></form>
     {% elif plan %}
@@ -48,7 +14,36 @@
       {% if plan.real_booking_enabled %}<label class="check-row"><input type="checkbox" name="confirm_real" value="yes" required>我确认开启每日真实预约</label>{% endif %}
       <button type="submit">开启每日自动预约</button>
     </form>
-    {% else %}<p class="muted">请先保存配置，再开启每日任务。</p>{% endif %}
-  </aside>
-</div>
+    {% else %}<span class="daily-status-wait">保存配置后可开启</span>{% endif %}
+  </div>
+  <div class="daily-status-facts"><div><span>下一执行日</span><strong>{{ execution_date }} · 07:27 北京时间</strong></div><div><span>预约目标日</span><strong data-target-date>{{ target_date }}</strong></div><div><span>当前任务</span><strong>{% if task %}<a href="/tasks/{{ task.id }}">查看任务 · {{ task.status }}</a>{% else %}暂无{% endif %}</strong></div></div>
+</section>
+<p class="daily-guidance">关闭开关会取消尚未开始的每日任务；已运行的任务仍需到任务详情查看结果。</p>
+<div class="booking-page-intro"><div><p class="eyebrow">每日预约方案</p><h2>配置预约偏好</h2><p>以下设置仅在保存并开启后用于每天的自动任务。</p></div><a class="button secondary" href="/tasks/new">创建一次性预约</a></div>
+<section class="booking-panel" aria-label="每日预约配置">
+  <form method="post" action="/daily-plan" data-booking-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="booking-panel-body">
+      <div class="booking-venue-line"><strong>当前场馆</strong><span class="booking-venue-badge" data-booking-venue>{{ plan.venue if plan else '前卫体育馆' }}</span></div>
+      <p class="booking-help">场馆和项目可以在此调整，不影响单次预约任务。</p>
+      <div class="booking-field"><span class="booking-label">场馆</span><div class="booking-choices" data-choice-group="venue" role="group" aria-label="场馆">
+        {% for venue_name in venues %}<button type="button" class="booking-choice" data-booking-choice data-choice-name="venue" data-choice-value="{{ venue_name }}" aria-pressed="{{ 'true' if (plan and plan.venue == venue_name) or (not plan and venue_name == '前卫体育馆') else 'false' }}">{{ venue_name }}</button>{% endfor %}
+      </div><label class="booking-native">场馆选择<select name="venue" data-venue-select>{% for venue_name in venues %}<option value="{{ venue_name }}" {% if (plan and plan.venue == venue_name) or (not plan and venue_name == '前卫体育馆') %}selected{% endif %}>{{ venue_name }}</option>{% endfor %}</select></label></div>
+      <div class="booking-field"><span class="booking-label">预约项目</span><div class="booking-choices" data-choice-group="sport" role="group" aria-label="预约项目">
+        {% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<button type="button" class="booking-choice" data-booking-choice data-choice-name="sport" data-choice-value="{{ sport_name }}" data-venue="{{ venue_name }}" aria-pressed="{{ 'true' if (plan and plan.venue == venue_name and plan.sport == sport_name) or (not plan and venue_name == '前卫体育馆' and sport_name == '羽毛球') else 'false' }}" {% if (plan and plan.venue != venue_name) or (not plan and venue_name != '前卫体育馆') %}hidden{% endif %}>{{ sport_name }}</button>{% endfor %}{% endfor %}
+      </div><label class="booking-native">项目选择<select name="sport" data-sport-select>{% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" data-venue="{{ venue_name }}" {% if (plan and plan.venue == venue_name and plan.sport == sport_name) or (not plan and venue_name == '前卫体育馆' and sport_name == '羽毛球') %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}</select></label></div>
+      <div class="booking-field"><span class="booking-label">预约目标日</span><div class="booking-choices" data-choice-group="target_day" role="group" aria-label="预约目标日">
+        <button type="button" class="booking-choice" data-booking-choice data-choice-name="target_day" data-choice-value="today" aria-pressed="{{ 'true' if not plan or plan.target_day == 'today' else 'false' }}">执行当天</button>
+        <button type="button" class="booking-choice" data-booking-choice data-choice-name="target_day" data-choice-value="tomorrow" aria-pressed="{{ 'true' if plan and plan.target_day == 'tomorrow' else 'false' }}">执行次日</button>
+      </div><label class="booking-native">目标日选择<select name="target_day" data-target-day><option value="today" {% if not plan or plan.target_day == 'today' %}selected{% endif %}>执行当天</option><option value="tomorrow" {% if plan and plan.target_day == 'tomorrow' %}selected{% endif %}>执行次日</option></select></label></div>
+      <p class="booking-selection-summary" data-booking-summary>当前选择：{{ plan.venue if plan else '前卫体育馆' }} · {{ plan.sport if plan else '羽毛球' }} · {{ '明天' if plan and plan.target_day == 'tomorrow' else '今天' }}</p>
+      <div class="booking-two-col"><div class="booking-field"><span class="booking-label">同行人学工号 · 必填</span><div class="booking-readiness">{% if companion_name %}<strong>{{ companion_name }} · 已验证</strong><span>每日任务使用此网页账号已验证的同行人</span>{% else %}<strong>尚未验证同行人</strong><span><a href="/profile">前往个人中心验证后再保存</a></span>{% endif %}</div></div><label class="booking-field">首选场地<input type="number" min="1" name="preferred_court_number" value="{{ plan.preferred_court_number if plan else 3 }}" required><small>例如 3 = 3 号场</small></label></div>
+      <fieldset class="booking-field booking-priority"><legend>重点时间（从上到下优先）</legend><p class="booking-help">按列表顺序尝试；可取消勾选，或用箭头调整顺序。</p><div class="booking-priority-list">
+        {% for start, end in priority_options %}<div class="priority-row"><label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" {% if not plan or (start, end) in plan.time_priority %}checked{% endif %}><span>{{ start }}–{{ end }}</span></label><button type="button" class="mini secondary" data-priority-up aria-label="上移 {{ start }}–{{ end }}">↑</button><button type="button" class="mini secondary" data-priority-down aria-label="下移 {{ start }}–{{ end }}">↓</button></div>{% endfor %}
+      </div></fieldset>
+      <fieldset class="booking-field booking-mode"><legend>运行模式</legend><p class="booking-help">真实预约命中目标后会向学校系统提交。</p><div class="booking-choices"><label class="booking-radio"><input type="radio" name="mode" value="scan" {% if not plan or not plan.real_booking_enabled %}checked{% endif %}><span>仅扫描</span></label><label class="booking-radio"><input type="radio" name="mode" value="real" {% if plan and plan.real_booking_enabled %}checked{% endif %}><span>真实预约</span></label></div><label class="check-row daily-confirm"><input type="checkbox" name="confirm_real" value="yes">若选择真实预约，我确认保存此设置</label></fieldset>
+    </div>
+    <div class="booking-submit-bar"><span>保存设置不会自动开启每日执行</span><button type="submit">保存每日配置</button></div>
+  </form>
+</section>
 {% endblock %}

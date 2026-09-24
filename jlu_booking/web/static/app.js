@@ -1,8 +1,15 @@
 "use strict";
 document.documentElement.classList.add("js-ready");
-if (window.matchMedia("(max-width: 900px)").matches) {
-  document.querySelector("[data-user-nav]")?.removeAttribute("open");
+const compactNavigation = window.matchMedia("(max-width: 900px)");
+function syncNavigationSize(event) {
+  for (const nav of [document.querySelector("[data-user-nav]"), document.querySelector("[data-admin-nav]")]) {
+    if (!nav) continue;
+    if (event.matches) nav.removeAttribute("open");
+    else nav.setAttribute("open", "");
+  }
 }
+syncNavigationSize(compactNavigation);
+compactNavigation.addEventListener?.("change", syncNavigationSize);
 window.JLUBooking = Object.freeze({
   isPageVisible: () => document.visibilityState === "visible",
   setText: (element, value) => { if (element) element.textContent = String(value); }
@@ -62,6 +69,26 @@ for (const button of document.querySelectorAll("[data-token-reveal]")) {
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") clearRevealedTokens(); });
 window.addEventListener("pagehide", clearRevealedTokens);
 
+// A reset returns its one-time password as JSON; show it only in this admin row.
+for (const form of document.querySelectorAll("[data-once-response]")) {
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!window.confirm("确定重置此用户的登录密码？")) return;
+    const output = document.querySelector(`[data-password-output="${form.dataset.resetUserId}"]`);
+    try {
+      const response = await fetch(form.action, {method: "POST", body: new FormData(form)});
+      if (!response.ok) throw new Error("重置失败，请刷新后重试。");
+      const payload = await response.json();
+      if (!payload.temporary_password) throw new Error("服务器没有返回临时密码。");
+      window.JLUBooking.setText(output, `临时密码（仅显示 60 秒）：${payload.temporary_password}`);
+      if (output) {
+        revealedOutputs.add(output);
+        setTimeout(() => { output.textContent = ""; revealedOutputs.delete(output); }, 60000);
+      }
+    } catch (error) { window.JLUBooking.setText(output, error.message); }
+  });
+}
+
 for (const button of document.querySelectorAll("[data-priority-up], [data-priority-down]")) {
   button.addEventListener("click", () => {
     const row = button.closest(".priority-row");
@@ -95,38 +122,9 @@ document.addEventListener("visibilitychange", () => {
 });
 configureDashboardPolling();
 
-// Keep the GUI's venue choice consistent between live query and new auto tasks.
-function syncVenueCards(venue) {
-  for (const card of document.querySelectorAll("[data-set-venue]")) {
-    const active = card.dataset.setVenue === venue;
-    card.classList.toggle("is-active", active);
-    if (active) card.setAttribute("aria-current", "true");
-    else card.removeAttribute("aria-current");
-    const icon = card.querySelector(".workspace-nav-icon");
-    const description = card.querySelector(".workspace-venue-copy small");
-    if (icon) icon.textContent = active ? "✓" : "馆";
-    if (description) description.textContent = active ? "✓ 当前选中" : "点击切换到此场馆";
-  }
-}
-for (const card of document.querySelectorAll("[data-set-venue]")) {
-  card.addEventListener("click", () => {
-    localStorage.setItem("jlu-preferred-venue", card.dataset.setVenue);
-    const venueSelect = document.querySelector("[data-venue-select]");
-    if (venueSelect && [...venueSelect.options].some((option) => option.value === card.dataset.setVenue)) {
-      venueSelect.value = card.dataset.setVenue;
-      venueSelect.dispatchEvent(new Event("change", {bubbles: true}));
-    }
-  });
-}
 for (const venueSelect of document.querySelectorAll("[data-venue-select]")) {
   const sportSelect = venueSelect.form?.querySelector("[data-sport-select]");
   if (!sportSelect) continue;
-  if (window.location.pathname === "/tasks/new") {
-    const remembered = localStorage.getItem("jlu-preferred-venue");
-    if (remembered && [...venueSelect.options].some((option) => option.value === remembered)) {
-      venueSelect.value = remembered;
-    }
-  }
   function syncSports() {
     const compatible = [...sportSelect.options].filter((option) => option.dataset.venue === venueSelect.value);
     for (const option of sportSelect.options) {
@@ -138,13 +136,45 @@ for (const venueSelect of document.querySelectorAll("[data-venue-select]")) {
       chip.hidden = !compatible.some((option) => option.value === chip.dataset.selectSport);
       chip.setAttribute("aria-pressed", String(chip.dataset.selectSport === sportSelect.value));
     }
-    syncVenueCards(venueSelect.value);
   }
-  venueSelect.addEventListener("change", () => {
-    localStorage.setItem("jlu-preferred-venue", venueSelect.value);
-    syncSports();
-  });
+  venueSelect.addEventListener("change", syncSports);
   syncSports();
+}
+
+// GUI-like chip controls enhance the native selects used by the booking forms.
+for (const form of document.querySelectorAll("[data-booking-form]")) {
+  const venueSelect = form.querySelector("[data-venue-select]");
+  const sportSelect = form.querySelector("[data-sport-select]");
+  const daySelect = form.querySelector("[data-target-day]");
+  if (!venueSelect || !sportSelect || !daySelect) continue;
+  const choices = [...form.querySelectorAll("[data-booking-choice]")];
+  function syncChoices() {
+    for (const choice of choices) {
+      const select = form.elements[choice.dataset.choiceName];
+      if (choice.dataset.choiceName === "sport") choice.hidden = choice.dataset.venue !== venueSelect.value;
+      choice.setAttribute("aria-pressed", String(
+        select.value === choice.dataset.choiceValue &&
+        (choice.dataset.choiceName !== "sport" || choice.dataset.venue === venueSelect.value)
+      ));
+    }
+    window.JLUBooking.setText(form.querySelector("[data-booking-venue]"), venueSelect.value);
+    window.JLUBooking.setText(form.querySelector("[data-booking-summary]"),
+      `当前选择：${venueSelect.value} · ${sportSelect.value} · ${daySelect.value === "today" ? "今天" : "明天"}`);
+  }
+  for (const select of [venueSelect, sportSelect, daySelect]) select.addEventListener("change", syncChoices);
+  for (const choice of choices) {
+    choice.addEventListener("click", () => {
+      const select = form.elements[choice.dataset.choiceName];
+      if (choice.dataset.choiceName === "sport") {
+        const option = [...select.options].find((item) => item.value === choice.dataset.choiceValue && item.dataset.venue === venueSelect.value);
+        if (!option) return;
+        option.selected = true;
+      } else select.value = choice.dataset.choiceValue;
+      select.dispatchEvent(new Event("change", {bubbles: true}));
+      syncChoices();
+    });
+  }
+  syncChoices();
 }
 
 const sportSelect = document.querySelector("[data-sport-select]");
@@ -152,7 +182,10 @@ const daySelect = document.querySelector("[data-day-select]");
 for (const chip of document.querySelectorAll("[data-select-sport]")) {
   chip.addEventListener("click", () => {
     if (!sportSelect) return;
-    sportSelect.value = chip.dataset.selectSport;
+    const venueSelect = sportSelect.form?.querySelector("[data-venue-select]");
+    const option = [...sportSelect.options].find((item) => item.value === chip.dataset.selectSport && item.dataset.venue === venueSelect?.value);
+    if (!option) return;
+    option.selected = true;
     for (const peer of document.querySelectorAll("[data-select-sport]")) {
       peer.setAttribute("aria-pressed", String(peer === chip));
     }

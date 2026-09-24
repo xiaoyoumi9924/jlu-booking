@@ -1,3 +1,7 @@
 {% extends "admin/shell.html" %}
 {% block title %}用户详情 · JLU 体育馆预约{% endblock %}
-{% block content %}<section class="card"><h1>{{ target.username }}</h1><p>状态：{{ target.status }}</p><p>创建时间：{{ target.created_at }}</p><a href="/admin/users">返回用户列表</a></section>{% endblock %}
+{% block admin_heading %}用户详情{% endblock %}
+{% block content %}
+<div class="admin-content-intro"><div><p class="eyebrow">账号资料</p><h2>{{ target.username }}</h2><p>此页面只显示账号元数据；凭据管理操作请回到用户列表。</p></div><a class="button secondary" href="/admin/users">返回用户列表</a></div>
+<section class="admin-detail-card"><dl><dt>用户 ID</dt><dd>#{{ target.id }}</dd><dt>账号状态</dt><dd><span class="badge status-{{ target.status }}">{{ target.status }}</span></dd><dt>创建时间</dt><dd>{{ target.created_at }}</dd></dl></section>
+{% endblock %}

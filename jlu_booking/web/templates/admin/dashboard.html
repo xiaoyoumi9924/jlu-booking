@@ -1,10 +1,11 @@
 {% extends "admin/shell.html" %}
-{% block title %}管理后台 · JLU 体育馆预约{% endblock %}
+{% block title %}管理概览 · JLU 体育馆预约{% endblock %}
 {% block content %}
-<div class="dashboard-head"><div><p class="eyebrow">管理工作台</p><h1>管理员概览</h1></div><a href="/admin/reauth">重新验证密码</a></div>
-<div class="status-grid">
-  <section class="card"><h2>用户管理</h2><p>有效用户：{{ counts.active }}/30</p><p>待验证：{{ counts.pending }}</p><a href="/admin/users">管理用户</a></section>
-  <section class="card"><h2>任务管理</h2><p>运行中：{{ counts.running }}</p><p><a href="/admin/tasks">查看全部任务</a></p></section>
-  <section class="card"><h2>审计记录</h2><p class="muted">查看重要管理操作。</p><a href="/admin/audit">查看审计记录</a></section>
+<div class="admin-intro"><div><p class="eyebrow">今日工作台</p><h2>运营一览</h2><p>查看账号准备情况与正在执行的预约任务。</p></div><a class="button secondary" href="/admin/reauth">重新验证管理员密码</a></div>
+<div class="admin-metrics">
+  <section class="admin-metric"><span>有效用户</span><strong>{{ counts.active }} <small>/ 30</small></strong><p>可使用网页预约的账号</p><a href="/admin/users">查看用户 →</a></section>
+  <section class="admin-metric"><span>待绑定用户</span><strong>{{ counts.pending }}</strong><p>还没有完成 Token 绑定</p><a href="/admin/users">处理账号 →</a></section>
+  <section class="admin-metric"><span>运行中任务</span><strong>{{ counts.running }}</strong><p>正在执行的预约任务</p><a href="/admin/tasks">查看任务 →</a></section>
 </div>
+<section class="admin-shortcuts"><div class="section-head"><div><p class="eyebrow">常用入口</p><h2>管理事项</h2></div></div><div class="admin-shortcut-grid"><a href="/admin/users"><strong>用户管理</strong><span>状态、密码重置和凭据查看</span><b>打开 →</b></a><a href="/admin/tasks"><strong>预约任务</strong><span>运行状态与脱敏日志</span><b>打开 →</b></a><a href="/admin/audit"><strong>审计记录</strong><span>查看重要管理操作</span><b>打开 →</b></a></div></section>
 {% endblock %}

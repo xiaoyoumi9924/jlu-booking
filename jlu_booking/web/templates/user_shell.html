@@ -3,7 +3,6 @@
 {% block page_class %}user-workspace{% endblock %}
 {% block navigation %}
 {% set active_path = request.url.path %}
-{% set current_venue = selected_venue if selected_venue is defined else (task.venue if task is defined and task else (plan.venue if plan is defined and plan else (check.venue if check is defined and check else (result.venue if result is defined and result else none)))) %}
 <details open class="workspace-nav" data-user-nav>
   <summary>功能导航</summary>
   <div class="workspace-nav-inner">
@@ -12,23 +11,19 @@
       <strong>吉林大学</strong><small>JILIN UNIVERSITY</small>
     </a>
     <nav aria-label="用户导航">
-      <div class="workspace-nav-section"><span>功能导航</span><span>2 项</span></div>
+      <div class="workspace-nav-section"><span>功能导航</span><span>4 项</span></div>
       <a class="workspace-nav-card{% if active_path == '/' or active_path == '/availability/query' %} is-active{% endif %}" href="/" {% if active_path == '/' or active_path == '/availability/query' %}aria-current="page"{% endif %}>
         <span class="workspace-nav-icon">查</span><span><strong>场地查询</strong><small>查看空闲场地与时段</small></span>
       </a>
       <a class="workspace-nav-card{% if active_path.startswith('/tasks') %} is-active{% endif %}" href="/tasks/new" {% if active_path.startswith('/tasks') %}aria-current="page"{% endif %}>
         <span class="workspace-nav-icon">约</span><span><strong>自动预约</strong><small>配置、启动与查看状态</small></span>
       </a>
-      <div class="workspace-nav-section workspace-venue-section"><span>服务场馆</span><span>{{ user_venues|length }} 个</span></div>
-      {% for name, info in user_venues.items() %}
-      <a class="workspace-venue-card{% if name == current_venue %} is-active{% endif %}" href="/?venue={{ name|urlencode }}" data-set-venue="{{ name }}" {% if name == current_venue %}aria-current="true"{% endif %}>
-        <span class="workspace-nav-icon">{% if name == current_venue %}✓{% else %}馆{% endif %}</span>
-        <span class="workspace-venue-copy"><strong>{{ name }}</strong><small>{% if name == current_venue %}✓ 当前选中{% else %}点击切换到此场馆{% endif %}</small><span class="workspace-sport-tags">{% for sport in info.sports %}<em>{{ sport }}</em>{% endfor %}</span></span>
+      <a class="workspace-nav-card{% if active_path.startswith('/daily-plan') %} is-active{% endif %}" href="/daily-plan" {% if active_path.startswith('/daily-plan') %}aria-current="page"{% endif %}>
+        <span class="workspace-nav-icon">日</span><span><strong>每日自动预约</strong><small>设置每日执行与开关</small></span>
       </a>
-      {% endfor %}
-      <div class="workspace-nav-section workspace-extra-section"><span>更多功能</span></div>
-      <a class="workspace-extra-link{% if active_path.startswith('/daily-plan') %} is-active{% endif %}" href="/daily-plan">每日自动预约</a>
-      <a class="workspace-extra-link{% if active_path.startswith('/profile') %} is-active{% endif %}" href="/profile">个人中心</a>
+      <a class="workspace-nav-card{% if active_path.startswith('/profile') or active_path == '/change-password' %} is-active{% endif %}" href="/profile" {% if active_path.startswith('/profile') or active_path == '/change-password' %}aria-current="page"{% endif %}>
+        <span class="workspace-nav-icon">我</span><span><strong>个人中心</strong><small>凭据与预约记录</small></span>
+      </a>
     </nav>
     <div class="workspace-nav-footer"><strong>求实创新 · 励志图强</strong><span>场地数据以学校系统为准</span></div>
   </div>

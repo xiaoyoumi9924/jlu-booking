@@ -4,6 +4,9 @@
 {% if daily_attention %}<p class="workspace-notice" role="status">每日自动预约：{{ daily_status }}。<a href="/daily-plan">查看设置</a></p>{% endif %}
 <section class="card query-card" aria-labelledby="query-heading" data-selected-venue="{{ selected_venue }}">
   <div class="section-head"><h2 id="query-heading">快速查询</h2><span class="query-venue-badge" data-query-venue>{{ selected_venue }}</span></div>
+  <div class="query-venue-choices" role="group" aria-label="选择场馆"><span class="query-label">场馆</span><div class="query-chips query-venue-links">
+    {% for venue_name in venues %}<a class="query-chip{% if venue_name == selected_venue %} is-selected{% endif %}" href="/?venue={{ venue_name|urlencode }}" {% if venue_name == selected_venue %}aria-current="true"{% endif %}>{{ venue_name }}</a>{% endfor %}
+  </div></div>
   <form method="post" action="/availability/query" class="query-form query-form-gui">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label class="query-fallback">场馆<select name="venue" data-venue-select>

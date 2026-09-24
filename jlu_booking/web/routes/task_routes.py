@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from ...api import VENUES
 from ...config import DEFAULT_TIME_PRIORITY
 from ...run_status import RunStatusError, load_run_status
+from ..credentials import CredentialError
 from ..dependencies import now_beijing, require_csrf
 from ..profile_helpers import require_active_user
 from ..security import RateLimitExceeded
@@ -75,13 +76,20 @@ def _form_context(request, session, user, *, task=None, error=None):
     execution_date = task.execution_date if task else request.app.state.services.tasks.next_execution_date(now)
     target_day = task.target_day if task else "today"
     target_date = request.app.state.services.tasks.target_date(execution_date, target_day)
+    try:
+        companion_name = request.app.state.services.credentials.decrypt_companion(user.id).name
+    except CredentialError:
+        companion_name = None
+    priorities = list(task.time_priority) if task else list(DEFAULT_TIME_PRIORITY)
+    priorities.extend(item for item in DEFAULT_TIME_PRIORITY if item not in priorities)
     return {
         "csrf_token": session.csrf_token,
         "user": user,
         "task": task,
         "error": error,
         "venues": VENUES,
-        "priority_options": DEFAULT_TIME_PRIORITY,
+        "priority_options": priorities,
+        "companion_name": companion_name,
         "execution_date": execution_date,
         "target_date": target_date,
     }
