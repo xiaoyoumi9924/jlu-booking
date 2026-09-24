@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..credentials import CredentialError, CredentialNotFound
 from ..dependencies import current_user, now_beijing, require_csrf
+from ..profile_history import list_history
 from ..security import mask_secret
 
 
@@ -21,6 +22,17 @@ def _guard(request: Request, *, allow_pending: bool = False):
         return None, None, RedirectResponse("/change-password", 303)
     if not allow_pending and user.status == "pending_token":
         return None, None, RedirectResponse("/onboarding/token", 303)
+    return session, user, None
+
+
+def _profile_guard(request: Request, *, for_write: bool = False):
+    session, user, redirect = _guard(request)
+    if redirect:
+        return session, user, redirect
+    if user.role != "user" or user.status != "active":
+        if for_write:
+            raise HTTPException(status_code=403, detail="无权修改个人设置。")
+        return None, None, RedirectResponse("/admin" if user.role == "admin" else "/login", 303)
     return session, user, None
 
 
@@ -62,7 +74,7 @@ async def token_onboarding(
     return RedirectResponse("/", 303)
 
 
-def _profile_context(request, session, user, error=None):
+def _profile_context(request, session, user, error=None, *, page=1):
     credentials = request.app.state.services.credentials
     try:
         masked_token = mask_secret(credentials.decrypt_token(user.id))
@@ -82,18 +94,28 @@ def _profile_context(request, session, user, error=None):
         "companion_name": companion_name,
         "masked_companion": masked_companion,
         "error": error,
+        "history_page": list_history(request.app.state.services.connection, user.id, page=page),
+        "history_status_labels": {
+            "scheduled": "已排程", "running": "运行中", "success": "预约成功",
+            "rejected": "未接受", "unknown": "结果不明", "submission_unknown": "结果不明",
+            "cancelled": "已取消", "submitting": "提交中", "no_result": "未找到场地",
+            "prechecked": "预检通过", "stopped": "已停止", "error": "运行出错",
+        },
+        "history_source_labels": {
+            "daily": "每日自动", "one_shot": "一次性自动", "manual": "手动",
+        },
     }
 
 
 @router.get("/profile", response_class=HTMLResponse)
-async def profile_page(request: Request):
-    session, user, redirect = _guard(request)
+async def profile_page(request: Request, page: int = Query(1, ge=1)):
+    session, user, redirect = _profile_guard(request)
     if redirect:
         return redirect
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="profile.html",
-        context=_profile_context(request, session, user),
+        context=_profile_context(request, session, user, page=page),
     )
 
 
@@ -103,7 +125,7 @@ async def save_companion(
     student_number: str = Form(...),
     csrf_token: str = Form(""),
 ):
-    session, user, redirect = _guard(request)
+    session, user, redirect = _profile_guard(request, for_write=True)
     if redirect:
         return redirect
     require_csrf(request, csrf_token, session)
@@ -127,7 +149,7 @@ async def replace_token(
     token: str = Form(...),
     csrf_token: str = Form(""),
 ):
-    session, user, redirect = _guard(request)
+    session, user, redirect = _profile_guard(request, for_write=True)
     if redirect:
         return redirect
     require_csrf(request, csrf_token, session)

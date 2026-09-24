@@ -18,7 +18,7 @@ from jlu_booking.web.db import connect_database, migrate_database
 from jlu_booking.web.security import CredentialCipher, PasswordService, ThrottleService
 from jlu_booking.web.sessions import SessionService
 from jlu_booking.web.settings import WebSettings
-from jlu_booking.web.tasks import TaskService
+from jlu_booking.web.tasks import TaskDraft, TaskService
 
 
 NOW = datetime(2026, 9, 23, 6, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -61,6 +61,7 @@ def workspace(tmp_path, monkeypatch):
         CredentialCipher(token_key, b"b" * 32),
         throttles,
         token_validator=lambda _token: TokenValidationResult("valid", "ok"),
+        companion_validator=lambda _number, _token: {"id": 1, "name": "测试同学"},
     )
     services = AppServices(
         connection, passwords, sessions, throttles, accounts, credentials,
@@ -218,3 +219,87 @@ def test_user_pages_share_gui_shell_with_distinct_page_titles(workspace):
     admin = admin_client.get("/admin")
     assert 'data-admin-nav' in admin.text
     assert 'data-user-nav' not in admin.text
+
+
+def test_personal_center_shows_only_owned_booking_history_and_missing_log(workspace):
+    user_client, admin_client, services = workspace
+    alice = services.accounts.find_by_username("alice")
+    companion = services.credentials.save_companion(alice.id, "20260001", now=NOW)
+    task = services.tasks.create(alice.id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", companion.id, 3,
+        [["15:30", "17:30"]], False,
+    ), now=NOW)
+    services.connection.execute("UPDATE booking_tasks SET status='cancelled' WHERE id=?", (task.id,))
+    services.connection.execute(
+        "INSERT INTO manual_candidates (id,user_id,venue,sport,query_date,court_name,"
+        "place_short_name,start_time,end_time,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("candidate-alice", alice.id, "前卫体育馆", "羽毛球", "2026-09-24", "1号场",
+         "ymq1", "15:30", "17:30", NOW.isoformat(), NOW.isoformat()),
+    )
+    services.connection.execute(
+        "INSERT INTO manual_booking_attempts (id,user_id,candidate_id,companion_id,"
+        "companion_updated_at,school_companion_id,credential_updated_at,"
+        "confirmation_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("attempt-alice", alice.id, "candidate-alice", companion.id, NOW.isoformat(), "1",
+         NOW.isoformat(), b"alice-attempt", "rejected", NOW.isoformat(), NOW.isoformat()),
+    )
+    bob = services.accounts.register_pending("bob", "another long password", source_ip="bob", now=NOW)
+    services.credentials.activate_user(bob.id, "private-token-bob", now=NOW)
+    bob_companion = services.credentials.save_companion(bob.id, "20260002", now=NOW)
+    bob_task = services.tasks.create(bob.id, TaskDraft(
+        "today", "前卫体育馆", "羽毛球", bob_companion.id, 3,
+        [["15:30", "17:30"]], False,
+    ), now=NOW)
+    services.connection.execute(
+        "INSERT INTO manual_candidates (id,user_id,venue,sport,query_date,court_name,"
+        "place_short_name,start_time,end_time,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("candidate-bob", bob.id, "前卫体育馆", "羽毛球", "2026-09-24", "2号场",
+         "ymq2", "15:30", "17:30", NOW.isoformat(), NOW.isoformat()),
+    )
+    services.connection.execute(
+        "INSERT INTO manual_booking_attempts (id,user_id,candidate_id,companion_id,"
+        "companion_updated_at,school_companion_id,credential_updated_at,"
+        "confirmation_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("attempt-bob", bob.id, "candidate-bob", bob_companion.id, NOW.isoformat(), "1",
+         NOW.isoformat(), b"bob-attempt", "rejected", NOW.isoformat(), NOW.isoformat()),
+    )
+    _login(user_client, "alice", "long password value")
+    page = user_client.get("/profile")
+    assert "我的预约记录" in page.text
+    assert f'href="/tasks/{task.id}"' in page.text
+    assert 'href="/manual/result/attempt-alice"' in page.text
+    assert f'href="/tasks/{bob_task.id}"' not in page.text
+    assert 'href="/manual/result/attempt-bob"' not in page.text
+    assert "alice-private-token" not in page.text
+    assert user_client.get(f"/tasks/{bob_task.id}").status_code == 404
+    assert user_client.get("/manual/result/attempt-bob").status_code == 404
+    assert user_client.get(f"/manual/result/attempt-alice").status_code == 200
+    assert "日志暂不可用" in user_client.get(f"/tasks/{task.id}").text
+    _login(admin_client, "owner", "owner password value")
+    admin_profile = admin_client.get("/profile", follow_redirects=False)
+    assert admin_profile.status_code == 303
+    assert admin_profile.headers["location"] == "/admin"
+
+
+def test_personal_center_history_paginates_and_disabled_user_cannot_read(workspace):
+    client, _admin_client, services = workspace
+    alice = services.accounts.find_by_username("alice")
+    companion = services.credentials.save_companion(alice.id, "20260001", now=NOW)
+    for index in range(21):
+        task = services.tasks.create(alice.id, TaskDraft(
+            "today", "前卫体育馆", "羽毛球", companion.id, 3,
+            [["15:30", "17:30"]], False,
+        ), now=NOW)
+        services.connection.execute(
+            "UPDATE booking_tasks SET status='cancelled',created_at=? WHERE id=?",
+            (f"2026-09-23T06:{index:02d}:00+08:00", task.id),
+        )
+    _login(client, "alice", "long password value")
+    first = client.get("/profile")
+    second = client.get("/profile?page=2")
+    assert 'href="/profile?page=2"' in first.text
+    assert 'href="/profile?page=1"' in second.text
+    assert second.text.count('>查看详情</a>') == 1
+    assert client.get("/profile?page=0").status_code == 422
+    services.accounts.disable(alice.id, now=NOW)
+    assert client.get("/profile", follow_redirects=False).headers["location"] == "/login"

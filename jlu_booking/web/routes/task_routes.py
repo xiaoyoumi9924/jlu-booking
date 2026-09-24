@@ -140,6 +140,8 @@ async def task_detail(request: Request, task_id: int):
     if redirect:
         return redirect
     task = _task_or_404(request, user.id, task_id)
+    terminal = task.status not in {"scheduled", "running"}
+    log_lines = read_private_log_lines(request, task.id, user.id) if terminal else []
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="task_detail.html",
@@ -148,6 +150,7 @@ async def task_detail(request: Request, task_id: int):
             "user": user,
             "task": task,
             "target_date": request.app.state.services.tasks.target_date(task.execution_date, task.target_day),
+            "log_initial_text": "\n".join(log_lines) if log_lines else ("日志暂不可用" if terminal else "等待日志…"),
         },
     )
 

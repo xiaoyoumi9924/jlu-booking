@@ -149,6 +149,12 @@ body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 320px); max-w
 .user-workspace .workspace-form-card fieldset { border-radius: 0; }
 .user-workspace .workspace-form-card button, .user-workspace .workspace-info-card button, .user-workspace .workspace-page-toolbar .button { border-radius: 0; }
 .user-workspace .workspace-form-card input, .user-workspace .workspace-form-card select { border-radius: 0; }
+.profile-history { margin-top: 22px; }
+.profile-history .section-head { margin-bottom: 8px; }
+.profile-history .section-head p { margin: 7px 0 0; font-size: .82rem; }
+.profile-history table { min-width: 680px; }
+.history-pages { display: flex; align-items: center; gap: 18px; margin-top: 20px; color: #526078; font-size: .88rem; }
+.history-pages a { color: #144399; font-weight: 700; }
 @media (min-width: 1800px) {
   .workspace-nav { width: 500px; }
   .workspace-nav-inner { padding: 38px 30px 34px; }

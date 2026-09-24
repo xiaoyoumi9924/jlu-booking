@@ -130,6 +130,22 @@ def test_token_onboarding_activates_without_echoing_token(web):
     assert profile.status_code == 200
     assert "token-alice" not in profile.text
     assert "toke***lice" in profile.text
+
+
+def test_invalid_token_replacement_keeps_existing_credential_and_history_page(web):
+    client, services = web
+    _register_and_login_pending(client)
+    assert _activate(client).status_code == 303
+    user = services.accounts.find_by_username("alice")
+    services.credentials._token_validator = lambda _token: TokenValidationResult("invalid", "bad")
+    page = client.get("/profile")
+    response = client.post("/profile/token", data={
+        "token": "new-private-token", "csrf_token": _csrf(page),
+    })
+    assert response.status_code == 400
+    assert "我的预约记录" in response.text
+    assert "new-private-token" not in response.text
+    assert services.credentials.decrypt_token(user.id) == "token-alice"
     assert services.accounts.find_by_username("alice").status == "active"
 
 

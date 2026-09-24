@@ -18,7 +18,9 @@ async function refreshTask() {
   const payload = await response.json();
   window.JLUBooking.setText(document.querySelector("[data-task-status]"), payload.status);
   window.JLUBooking.setText(document.querySelector("[data-task-phase]"), payload.phase || "尚未开始");
-  window.JLUBooking.setText(document.querySelector("[data-log-region]"), payload.log_lines.join("\n"));
+  window.JLUBooking.setText(document.querySelector("[data-log-region]"),
+    payload.log_lines.length ? payload.log_lines.join("\n") :
+      (terminalStates.has(payload.status) ? "日志暂不可用" : "等待日志…"));
   if (terminalStates.has(payload.status) && taskTimer) { clearInterval(taskTimer); taskTimer = null; }
 }
 function configurePolling() {

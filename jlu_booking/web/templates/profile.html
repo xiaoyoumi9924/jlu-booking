@@ -32,4 +32,19 @@
     </div>
   </section>
 </div>
+<section class="card workspace-info-card profile-history" aria-labelledby="history-heading">
+  <div class="section-head"><div><h2 id="history-heading">我的预约记录</h2><p class="muted">仅显示此网页账号的自动与手动预约；点击记录查看状态或运行日志。</p></div></div>
+  {% if history_page.items %}
+  <div class="table-wrap"><table><thead><tr><th>时间</th><th>方式</th><th>目标日期</th><th>场馆 / 项目</th><th>状态</th><th>操作</th></tr></thead><tbody>
+    {% for item in history_page.items %}
+    <tr><td>{{ item.occurred_at[:16] | replace('T', ' ') }}</td><td>{{ history_source_labels.get(item.source, item.source) }}</td><td>{{ item.target_date }}</td><td>{{ item.venue }} · {{ item.sport }}</td><td><span class="badge status-{{ item.status }}">{{ history_status_labels.get(item.status, item.status) }}</span></td><td><a href="{{ '/tasks/' ~ item.record_id if item.kind == 'auto' else '/manual/result/' ~ item.record_id }}">查看详情</a></td></tr>
+    {% endfor %}
+  </tbody></table></div>
+  {% else %}<p class="empty-state"><strong>暂无预约记录</strong><span>此网页账号创建的预约任务与已提交的手动预约会显示在这里。</span></p>{% endif %}
+  {% if history_page.page > 1 or history_page.has_next %}<nav class="history-pages" aria-label="预约记录分页">
+    {% if history_page.page > 1 %}<a href="/profile?page={{ history_page.page - 1 }}">上一页</a>{% endif %}
+    <span>第 {{ history_page.page }} 页</span>
+    {% if history_page.has_next %}<a href="/profile?page={{ history_page.page + 1 }}">下一页</a>{% endif %}
+  </nav>{% endif %}
+</section>
 {% endblock %}
