@@ -74,7 +74,7 @@ def make_service(state, *, can_book_func=None, companion_func=None, book_place_f
 def test_migration_three_is_idempotent(state):
     _path, db, _credentials, _accounts, _users = state
     migrate_database(db)
-    assert {row[0] for row in db.execute("SELECT version FROM schema_migrations")} == {1, 2, 3}
+    assert {row[0] for row in db.execute("SELECT version FROM schema_migrations")} == {1, 2, 3, 4}
     tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"manual_candidates", "manual_booking_attempts"} <= tables
 
@@ -88,7 +88,7 @@ def test_version_two_database_upgrades_once(tmp_path):
         db.execute("INSERT INTO schema_migrations VALUES (?,?)", (version, NOW.isoformat()))
     migrate_database(db)
     migrate_database(db)
-    assert [row[0] for row in db.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3]
+    assert [row[0] for row in db.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4]
 
 
 def test_owned_candidate_precheck_uses_server_snapshot_and_expires(state):

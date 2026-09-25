@@ -228,6 +228,11 @@ MIGRATION_3 = (
     """,
 )
 
+MIGRATION_4 = (
+    "ALTER TABLE booking_tasks ADD COLUMN start_mode TEXT NOT NULL DEFAULT 'scheduled' "
+    "CHECK (start_mode IN ('scheduled', 'immediate'))",
+)
+
 
 def connect_database(path: Path | str) -> sqlite3.Connection:
     """Open a configured SQLite connection for Web application state."""
@@ -283,7 +288,7 @@ def migrate_database(connection: sqlite3.Connection) -> None:
         applied = {
             row[0] for row in connection.execute("SELECT version FROM schema_migrations")
         }
-        for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3)):
+        for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATION_4)):
             if version in applied:
                 continue
             for statement in statements:

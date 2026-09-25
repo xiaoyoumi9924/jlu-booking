@@ -214,14 +214,15 @@ def test_user_pages_use_compact_headings_and_distinct_destinations(workspace):
     _login(admin_client, "owner", "owner password value")
     for path, title, form_action in (
         ("/", "快速查询", "/availability/query"),
-        ("/tasks/new", "启动一次预约", "/tasks/new"),
-        ("/daily-plan", "自动预约", "/daily-plan"),
+        ("/tasks/new", None, "/tasks/new"),
+        ("/daily-plan", None, "/daily-plan"),
         ("/profile", "个人中心", "/profile/token"),
     ):
         page = user_client.get(path)
         assert page.status_code == 200
         assert 'class="workspace-head"' not in page.text
-        assert re.search(rf"<h1(?: [^>]*)?>{title}</h1>", page.text)
+        if title:
+            assert re.search(rf"<h1(?: [^>]*)?>{title}</h1>", page.text)
         assert 'href="/profile"' in page.text
         assert f'action="{form_action}"' in page.text
         assert 'data-user-nav' in page.text
@@ -238,9 +239,9 @@ def test_personal_center_groups_credentials_security_and_history(workspace):
     assert page.status_code == 200
     assert 'class="profile-identity"' not in page.text
     assert 'class="profile-cards"' not in page.text
-    assert 'class="profile-settings"' in page.text
-    assert 'class="profile-security"' in page.text
-    assert 'class="profile-history"' in page.text
+    assert 'class="account-overview"' in page.text
+    assert 'class="account-actions"' in page.text
+    assert 'class="account-history"' in page.text
     assert 'action="/profile/token"' in page.text
     assert 'action="/profile/companion"' in page.text
     assert 'href="/change-password"' in page.text
@@ -354,8 +355,8 @@ def test_auto_booking_form_uses_gui_panel_without_changing_submission_fields(wor
     assert 'name="mode"' in html
     assert 'action="/tasks/new"' in html
     assert "重点时间（从上到下优先）" in html
-    assert "保存并启动" in html
-    assert "立即启动" not in html
+    assert "立即启动预约" in html
+    assert "07:27" not in html
 
 
 def test_daily_booking_explains_separate_save_and_enable_steps(workspace):
@@ -363,10 +364,10 @@ def test_daily_booking_explains_separate_save_and_enable_steps(workspace):
     _login(client, "alice", "long password value")
     html = client.get("/daily-plan").text
     assert 'class="daily-status-panel"' in html
-    assert html.index("每日执行状态") < html.index('action="/daily-plan"')
+    assert html.index('class="daily-status-panel"') < html.index('action="/daily-plan"')
     assert 'action="/daily-plan"' in html
     assert "保存每日配置" in html
-    assert "先保存配置，再开启每日执行" in html
+    assert "保存配置后可开启" in html
     assert 'data-choice-group="venue"' in html
     assert 'data-choice-group="sport"' in html
 
@@ -375,9 +376,9 @@ def test_personal_center_separates_credentials_and_owned_history(workspace):
     client, _admin_client, _services = workspace
     _login(client, "alice", "long password value")
     html = client.get("/profile").text
-    assert 'class="profile-settings"' in html
-    assert 'class="profile-security"' in html
-    assert 'class="profile-history"' in html
+    assert 'class="account-overview"' in html
+    assert 'class="account-actions"' in html
+    assert 'class="account-history"' in html
     assert 'action="/profile/token"' in html
     assert 'action="/profile/companion"' in html
     assert "我的预约记录" in html

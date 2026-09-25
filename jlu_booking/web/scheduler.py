@@ -101,6 +101,28 @@ class Scheduler:
                     (status, now.isoformat(), task.user_id),
                 )
 
+    @staticmethod
+    def _termination_result(owned: _OwnedWorker, exit_code: int, *, shutdown: bool = False) -> WorkerResult:
+        try:
+            payload = load_run_status(
+                owned.launch.runtime_dir / "state" / "last_run.json"
+            )
+        except RunStatusError:
+            payload = None
+        if payload and payload.get("status") in RECOVERABLE_TERMINAL_STATUSES:
+            return WorkerResult(str(payload["status"]), "已记录最终状态。", exit_code)
+        if payload and payload.get("phase") == "submitting":
+            return WorkerResult(
+                "submission_unknown",
+                "最终提交期间中断，结果需到学校系统核对。",
+                exit_code,
+            )
+        return WorkerResult(
+            "stopped",
+            "调度器停止。" if shutdown else "用户请求停止任务。",
+            exit_code,
+        )
+
     def _observe_owned(self, now: datetime) -> tuple[list[int], list[int]]:
         finished: list[int] = []
         stopped: list[int] = []
@@ -122,17 +144,16 @@ class Scheduler:
             if row is None or not row["stop_requested_at"]:
                 continue
             exit_code = owned.running.terminate(grace_seconds=5.0)
+            result = self._termination_result(owned, exit_code)
             self._worker.cleanup_snapshot(owned.launch)
-            self._finalize(
-                owned.task,
-                WorkerResult("stopped", "用户请求停止任务。", exit_code),
-                now,
-            )
+            self._finalize(owned.task, result, now)
             self._owned.pop(task_id, None)
             stopped.append(task_id)
         return finished, stopped
 
-    def _claim_due(self, now: datetime) -> list[tuple[BookingTask, object]]:
+    def _claim_due(
+        self, now: datetime, *, start_mode: str = "scheduled"
+    ) -> list[tuple[BookingTask, object]]:
         claimed: list[tuple[BookingTask, object]] = []
         with transaction(self._connection, immediate=True):
             rows = self._connection.execute(
@@ -140,12 +161,16 @@ class Scheduler:
                 "c.last_status AS credential_status "
                 "FROM booking_tasks t JOIN users u ON u.id=t.user_id "
                 "LEFT JOIN user_credentials c ON c.user_id=t.user_id "
-                "WHERE t.execution_date = ? AND t.status = 'scheduled' ORDER BY t.id",
-                (now.date().isoformat(),),
+                "WHERE t.execution_date = ? AND t.status = 'scheduled' "
+                "AND t.start_mode = ? ORDER BY t.id",
+                (now.date().isoformat(), start_mode),
             ).fetchall()
             for row in rows:
                 task = TaskService._record(row)
                 target_date = TaskService.target_date(task.execution_date, task.target_day)
+                if TaskService.has_auto_terminal(self._connection, task.user_id, target_date):
+                    self._finalize_skipped(task, now, "同日已有自动预约成功或结果不明，未重复启动。")
+                    continue
                 manual = self._connection.execute(
                     "SELECT a.status FROM manual_booking_attempts a "
                     "JOIN manual_candidates c ON c.id=a.candidate_id "
@@ -261,8 +286,10 @@ class Scheduler:
             if now.time() >= LAST_START_TIME:
                 rows = self._connection.execute(
                     "SELECT id FROM booking_tasks WHERE status='scheduled' "
-                    "AND execution_date <= ? ORDER BY execution_date,id",
-                    (now.date().isoformat(),),
+                    "AND (execution_date < ? OR "
+                    "(execution_date = ? AND start_mode = 'scheduled')) "
+                    "ORDER BY execution_date,id",
+                    (now.date().isoformat(), now.date().isoformat()),
                 ).fetchall()
             else:
                 rows = self._connection.execute(
@@ -298,6 +325,7 @@ class Scheduler:
         missed = self._mark_missed(local_now)
         if START_TIME <= local_now.time() < LAST_START_TIME:
             started = self._start_claimed(self._claim_due(local_now), local_now)
+        started.extend(self._start_claimed(self._claim_due(local_now, start_mode="immediate"), local_now))
         return SchedulerTick(
             started_task_ids=tuple(started),
             finished_task_ids=tuple(finished),
@@ -325,11 +353,14 @@ class Scheduler:
                     payload = None
                 if payload and payload.get("status") in RECOVERABLE_TERMINAL_STATUSES:
                     status = str(payload["status"])
-            detail = (
-                "已从运行状态文件恢复终态。"
-                if status != "error"
-                else "调度器重启后无法确认完整终态，未重新提交预约。"
-            )
+                elif payload and payload.get("phase") == "submitting":
+                    status = "submission_unknown"
+            if status == "submission_unknown":
+                detail = "最终提交期间中断，结果需到学校系统核对。"
+            elif status == "error":
+                detail = "调度器重启后无法确认完整终态，未重新提交预约。"
+            else:
+                detail = "已从运行状态文件恢复终态。"
             self._finalize(
                 task,
                 WorkerResult(status, detail, row["exit_code"]),
@@ -366,10 +397,7 @@ class Scheduler:
             shutdown_now = self._local(self._clock())
             for task_id, owned in list(self._owned.items()):
                 exit_code = owned.running.terminate(grace_seconds=5.0)
+                result = self._termination_result(owned, exit_code, shutdown=True)
                 self._worker.cleanup_snapshot(owned.launch)
-                self._finalize(
-                    owned.task,
-                    WorkerResult("stopped", "调度器停止。", exit_code),
-                    shutdown_now,
-                )
+                self._finalize(owned.task, result, shutdown_now)
                 self._owned.pop(task_id, None)

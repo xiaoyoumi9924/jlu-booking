@@ -79,11 +79,11 @@ def test_daily_plan_form_and_toggle_materialize_and_cancel(web):
     assert page.status_code == 200
     assert 'value="scan"' in page.text and 'value="real"' in page.text
     assert 'data-venue="宋治平体育馆"' in page.text
-    assert '2026-09-23' in page.text
+    assert "保存配置后可开启" in page.text
     assert "未开启" in page.text
     saved = client.post("/daily-plan", data=form_data(csrf(page)), follow_redirects=False)
     assert saved.status_code == 303
-    assert '2026-09-24' in client.get("/daily-plan").text
+    assert "保存每日配置" in client.get("/daily-plan").text
     plan = services.daily_plans.get_for_user(alice_id)
     assert plan is not None and plan.enabled is False and plan.real_booking_enabled is False
     enabled = client.post("/daily-plan/enable", data={"csrf_token": csrf(client.get("/daily-plan"))}, follow_redirects=False)
@@ -149,7 +149,7 @@ def test_disabling_after_cutoff_does_not_stop_running_daily_task(web, monkeypatc
     assert response.status_code == 303
     assert services.connection.execute("SELECT status FROM booking_tasks WHERE user_id=?", (alice_id,)).fetchone()[0] == "running"
     detail = client.get("/daily-plan")
-    assert "2026-09-24" in detail.text
+    assert "查看当前任务" in detail.text
     assert "当前任务仍在运行" in detail.text
     dashboard = client.get("/")
     assert "当前任务仍在运行" in dashboard.text

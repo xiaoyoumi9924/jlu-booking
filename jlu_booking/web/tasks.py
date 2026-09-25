@@ -84,6 +84,7 @@ class BookingTask:
     cancelled_at: datetime | None
     source: str = "one_shot"
     daily_plan_id: int | None = None
+    start_mode: str = "scheduled"
 
 
 class TaskService:
@@ -118,10 +119,22 @@ class TaskService:
             (int(user_id), target_date.isoformat()),
         ).fetchone() is not None
 
+    @staticmethod
+    def has_auto_terminal(connection, user_id: int, target_date: date) -> bool:
+        return connection.execute(
+            "SELECT 1 FROM booking_tasks WHERE user_id=? "
+            "AND status IN ('success','submission_unknown') "
+            "AND date(execution_date, CASE target_day WHEN 'tomorrow' "
+            "THEN '+1 day' ELSE '+0 day' END)=? LIMIT 1",
+            (int(user_id), target_date.isoformat()),
+        ).fetchone() is not None
+
     def _require_no_manual_terminal(self, user_id: int, execution_date: date, target_day: str) -> None:
         target_date = self.target_date(execution_date, target_day)
         if self.has_manual_terminal(self._connection, user_id, target_date):
             raise ManualResultExists("目标日期已有手动预约成功或提交结果不明，不能创建自动任务。")
+        if self.has_auto_terminal(self._connection, user_id, target_date):
+            raise ManualResultExists("目标日期已有自动预约成功或提交结果不明，不能重复预约。")
 
     @staticmethod
     def _optional_datetime(value: str | None) -> datetime | None:
@@ -149,6 +162,7 @@ class TaskService:
             cancelled_at=cls._optional_datetime(row["cancelled_at"]),
             source=row["source"],
             daily_plan_id=row["daily_plan_id"],
+            start_mode=row["start_mode"],
         )
 
     def get_for_user(self, user_id: int, task_id: int) -> BookingTask:
@@ -220,9 +234,10 @@ class TaskService:
         draft: TaskDraft,
         *,
         now: datetime,
+        immediate: bool = False,
     ) -> BookingTask:
         local_now = require_aware(now).astimezone(BEIJING)
-        execution_date = self.next_execution_date(local_now)
+        execution_date = local_now.date() if immediate else self.next_execution_date(local_now)
         try:
             with transaction(self._connection, immediate=True):
                 self._require_eligible_user(user_id)
@@ -239,8 +254,8 @@ class TaskService:
                     "INSERT INTO booking_tasks "
                     "(user_id, execution_date, target_day, venue, sport, "
                     "companion_id, preferred_court_number, time_priority_json, "
-                    "real_booking_enabled, status, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)",
+                    "real_booking_enabled, status, created_at, updated_at, start_mode) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)",
                     (
                         int(user_id),
                         execution_date.isoformat(),
@@ -253,6 +268,7 @@ class TaskService:
                         values["real_booking_enabled"],
                         local_now.isoformat(),
                         local_now.isoformat(),
+                        "immediate" if immediate else "scheduled",
                     ),
                 )
                 task_id = cursor.lastrowid
@@ -275,6 +291,8 @@ class TaskService:
             task = self.get_for_user(user_id, task_id)
             if task.status != "scheduled":
                 raise TaskFrozen("只有待执行任务可以编辑。")
+            if task.start_mode == "immediate":
+                raise TaskFrozen("立即运行任务不能编辑；可停止后重新创建。")
             self._require_before_cutoff(task, local_now)
             self._require_eligible_user(user_id)
             values = self._normalize_draft(user_id, draft)
@@ -311,7 +329,8 @@ class TaskService:
             task = self.get_for_user(user_id, task_id)
             if task.status != "scheduled":
                 raise TaskFrozen("只有待执行任务可以取消。")
-            self._require_before_cutoff(task, local_now)
+            if task.start_mode != "immediate":
+                self._require_before_cutoff(task, local_now)
             self._connection.execute(
                 "UPDATE booking_tasks SET status = 'cancelled', updated_at = ?, "
                 "cancelled_at = ? WHERE id = ? AND user_id = ? "

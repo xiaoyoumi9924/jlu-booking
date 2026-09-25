@@ -269,6 +269,25 @@ def test_successful_loop_records_success_status(monkeypatch):
     ]
 
 
+def test_immediate_loop_queries_after_deadline_until_success(monkeypatch):
+    target = _target()
+    sleeps, _ = _prepare_loop_test(monkeypatch, [])
+    monkeypatch.setattr(auto, "now_local", lambda: datetime(2026, 9, 10, 12, 0, tzinfo=BEIJING))
+    queries = []
+    _install_query_outcomes(monkeypatch, [[], [target]], queries)
+    guards = []
+    monkeypatch.setattr(auto, "attempt_real_booking", lambda **kw: guards.append(kw["request_guard"]) or True)
+
+    auto.run_booking_loop(
+        query_date="2026-09-11", companion_id=123, companion_name="示例用户",
+        token="example-token", session=object(), immediate=True,
+    )
+
+    assert len(queries) == 2
+    assert sleeps == [auto.WARMUP_INTERVAL]
+    assert guards == [None]
+
+
 @pytest.mark.parametrize(
     ("server_message", "expected_status"),
     [

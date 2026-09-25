@@ -76,6 +76,12 @@ async def token_onboarding(
 
 def _profile_context(request, session, user, error=None, *, page=1):
     credentials = request.app.state.services.credentials
+    history_count = request.app.state.services.connection.execute(
+        "SELECT (SELECT COUNT(*) FROM booking_tasks WHERE user_id=?) + "
+        "(SELECT COUNT(*) FROM manual_booking_attempts "
+        "WHERE user_id=? AND status!='prechecked')",
+        (user.id, user.id),
+    ).fetchone()[0]
     try:
         masked_token = mask_secret(credentials.decrypt_token(user.id))
     except CredentialNotFound:
@@ -95,6 +101,7 @@ def _profile_context(request, session, user, error=None, *, page=1):
         "masked_companion": masked_companion,
         "error": error,
         "history_page": list_history(request.app.state.services.connection, user.id, page=page),
+        "history_count": history_count,
         "history_status_labels": {
             "scheduled": "已排程", "running": "运行中", "success": "预约成功",
             "rejected": "未接受", "unknown": "结果不明", "submission_unknown": "结果不明",
@@ -102,7 +109,7 @@ def _profile_context(request, session, user, error=None, *, page=1):
             "prechecked": "预检通过", "stopped": "已停止", "error": "运行出错",
         },
         "history_source_labels": {
-            "daily": "每日自动", "one_shot": "一次性自动", "manual": "手动",
+            "daily": "每日自动", "one_shot": "启动预约", "manual": "手动",
         },
     }
 

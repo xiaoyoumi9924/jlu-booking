@@ -146,6 +146,8 @@ class WorkerAdapter:
                 frozen=False,
             )
         )
+        if task.start_mode == "immediate":
+            command += ("--immediate",)
         environment = dict(self._base_environment)
         environment.update(
             {

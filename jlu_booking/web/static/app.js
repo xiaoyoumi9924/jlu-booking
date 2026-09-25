@@ -16,6 +16,7 @@ window.JLUBooking = Object.freeze({
 });
 
 const terminalStates = new Set(["success", "no_result", "token_invalid", "account_blocked", "daily_limit", "submission_unknown", "network_unavailable", "stopped", "error", "cancelled"]);
+const taskStatusLabels = Object.freeze({scheduled: "即将启动", running: "运行中", success: "预约成功", no_result: "未找到场地", token_invalid: "登录失效", account_blocked: "账号受限", daily_limit: "预约已达上限", submission_unknown: "结果待核对", network_unavailable: "网络不可用", stopped: "已停止", error: "运行出错", cancelled: "已取消"});
 const taskRoot = document.querySelector("[data-task-status-url]");
 let taskTimer = null;
 async function refreshTask() {
@@ -23,7 +24,7 @@ async function refreshTask() {
   const response = await fetch(taskRoot.dataset.taskStatusUrl, {headers: {"Accept": "application/json"}});
   if (!response.ok) return;
   const payload = await response.json();
-  window.JLUBooking.setText(document.querySelector("[data-task-status]"), payload.status);
+  window.JLUBooking.setText(document.querySelector("[data-task-status]"), taskStatusLabels[payload.status] || payload.status);
   window.JLUBooking.setText(document.querySelector("[data-task-phase]"), payload.phase || "尚未开始");
   window.JLUBooking.setText(document.querySelector("[data-log-region]"),
     payload.log_lines.length ? payload.log_lines.join("\n") :
@@ -175,6 +176,17 @@ for (const form of document.querySelectorAll("[data-booking-form]")) {
     });
   }
   syncChoices();
+}
+
+for (const form of document.querySelectorAll('form[action="/tasks/new"]')) {
+  const submit = form.querySelector("[data-booking-submit]");
+  const modes = [...form.querySelectorAll('input[name="mode"]')];
+  const syncSubmit = () => {
+    if (submit) submit.textContent = modes.find((mode) => mode.checked)?.value === "scan"
+      ? "立即开始扫描" : "立即启动预约";
+  };
+  modes.forEach((mode) => mode.addEventListener("change", syncSubmit));
+  syncSubmit();
 }
 
 const sportSelect = document.querySelector("[data-sport-select]");

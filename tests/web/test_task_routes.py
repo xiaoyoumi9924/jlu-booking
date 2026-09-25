@@ -125,10 +125,10 @@ def test_dashboard_and_create_show_exact_dates(web):
     assert dashboard.status_code == 200
     assert "今天 · 09月22日" in dashboard.text
     form = client.get("/tasks/new")
-    assert "2026-09-22" in form.text
+    assert "07:27" not in form.text
     assert "data-priority-up" in form.text
     assert "data-priority-down" in form.text
-    assert "data-target-date" in form.text
+    assert "立即启动预约" in form.text
     response = client.post(
         "/tasks/new",
         data=_task_data(_csrf(form), target_day="tomorrow"),
@@ -142,6 +142,40 @@ def test_dashboard_and_create_show_exact_dates(web):
     assert tuple(task[1:]) == ("2026-09-22", "tomorrow")
     detail = client.get(response.headers["location"])
     assert "2026-09-23" in detail.text
+
+
+def test_start_booking_creates_immediate_task_for_current_day(web):
+    client, services, _ = web
+    user, _ = _create_active_user(services, "immediate-user")
+    _login(client, "immediate-user")
+    form = client.get("/tasks/new")
+    assert "07:27" not in form.text
+    response = client.post(
+        "/tasks/new", data=_task_data(_csrf(form)), follow_redirects=False
+    )
+    assert response.status_code == 303
+    task = services.tasks.get_for_user(user.id, int(response.headers["location"].split("/")[-1]))
+    assert task.start_mode == "immediate"
+    assert task.execution_date == NOW.date()
+
+
+def test_unknown_immediate_result_blocks_repeat_submission_for_same_target_day(web):
+    client, services, _ = web
+    user, _ = _create_active_user(services, "unknown-user")
+    _login(client, "unknown-user")
+    page = client.get("/tasks/new")
+    created = client.post("/tasks/new", data=_task_data(_csrf(page)), follow_redirects=False)
+    assert created.status_code == 303
+    task_id = int(created.headers["location"].split("/")[-1])
+    services.connection.execute(
+        "UPDATE booking_tasks SET status='submission_unknown' WHERE id=?", (task_id,)
+    )
+    response = client.post(
+        "/tasks/new", data=_task_data(_csrf(client.get("/tasks/new"))),
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "结果不明" in response.text
 
 
 def test_one_time_task_accepts_and_validates_companion_in_its_own_form(web):

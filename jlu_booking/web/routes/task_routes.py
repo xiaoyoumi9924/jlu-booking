@@ -80,7 +80,7 @@ async def _validate_companion_input(request: Request, user_id: int, student_numb
 
 def _form_context(request, session, user, *, task=None, error=None):
     now = now_beijing()
-    execution_date = task.execution_date if task else request.app.state.services.tasks.next_execution_date(now)
+    execution_date = task.execution_date if task else now.date()
     target_day = task.target_day if task else "today"
     target_date = request.app.state.services.tasks.target_date(execution_date, target_day)
     try:
@@ -143,6 +143,7 @@ async def create_task(
             user.id,
             _draft(user, request, target_day, venue, sport, preferred_court_number, priority, mode),
             now=now,
+            immediate=True,
         )
     except sqlite3.OperationalError:
         return HTMLResponse("数据库暂时繁忙，请稍后重试。", status_code=503)
@@ -179,6 +180,8 @@ async def edit_task_page(request: Request, task_id: int):
         return redirect
     task = _task_or_404(request, user.id, task_id)
     try:
+        if task.start_mode == "immediate":
+            raise TaskFrozen("立即运行任务不能编辑；可停止后重新创建。")
         request.app.state.services.tasks._require_before_cutoff(task, now_beijing())
         if task.status != "scheduled":
             raise TaskFrozen("任务已冻结。")
@@ -208,6 +211,8 @@ async def edit_task(
     now = now_beijing()
     _mutate_allowed(request, user.id, now)
     try:
+        if task.start_mode == "immediate":
+            raise TaskFrozen("立即运行任务不能编辑；可停止后重新创建。")
         request.app.state.services.tasks._require_before_cutoff(task, now)
         if task.status != "scheduled":
             raise TaskFrozen("任务已冻结。")

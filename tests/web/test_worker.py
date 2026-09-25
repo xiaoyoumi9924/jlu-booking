@@ -127,6 +127,15 @@ def test_command_mode_matches_real_booking_setting(worker_adapter, task):
     assert real.command == ("python-web", "-m", "jlu_booking.auto")
 
 
+def test_immediate_task_launches_worker_in_immediate_mode(worker_adapter, task):
+    immediate = worker_adapter.prepare(
+        replace(task, id=21, start_mode="immediate", real_booking_enabled=True)
+    )
+    assert immediate.command == (
+        "python-web", "-m", "jlu_booking.auto", "--immediate"
+    )
+
+
 def test_log_sanitizer_redacts_exact_private_values(worker_adapter, task):
     worker_adapter.prepare(task)
     line = "token=private-token companion=20260001"

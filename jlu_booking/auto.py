@@ -197,6 +197,10 @@ def build_arg_parser():
     parser.add_argument("--companion", help="临时覆盖同行人学工号")
     parser.add_argument("--court", type=int, help="临时覆盖首选场地编号")
     parser.add_argument(
+        "--immediate", action="store_true",
+        help="立即开始持续查询；仅供网页单次任务使用，不等待每天预约窗口",
+    )
+    parser.add_argument(
         "--time",
         action="append",
         type=parse_time_range,
@@ -896,6 +900,7 @@ def phase_display_name(phase):
         "waiting": "等待 07:27",
         "warmup": "预热阶段",
         "core": "核心抢票阶段",
+        "immediate": "立即预约",
         "finished": "当天任务结束",
     }[phase]
 
@@ -958,6 +963,7 @@ def attempt_real_booking(
         session=session,
     )
 
+    update_run_status("running", target_date=query_date, phase="submitting")
     try:
         result = timed_api_call(
             request_id,
@@ -979,6 +985,7 @@ def attempt_real_booking(
         raise
     except ServerResponseError:
         # 服务器明确返回失败，上层可以按错误类型决定是否重试。
+        update_run_status("running", target_date=query_date, phase="retry")
         raise
     except Exception as exc:
         # 最终提交已发出后断网或响应解析失败时，无法确认服务器
@@ -1140,6 +1147,7 @@ def run_booking_loop(
     token,
     session,
     stats=None,
+    immediate=False,
 ):
     """运行预热和基于最新查询结果的核心预约循环。"""
 
@@ -1150,9 +1158,12 @@ def run_booking_loop(
     last_phase = None
     invalidated_candidates = {}
 
+    request_guard = None if immediate else ensure_request_allowed
     while True:
         now_dt = now_local()
-        phase, interval, allow_booking = get_phase(now_dt)
+        phase, interval, allow_booking = (
+            ("immediate", WARMUP_INTERVAL, True) if immediate else get_phase(now_dt)
+        )
 
         if phase == "waiting":
             wait_until_start()
@@ -1215,7 +1226,7 @@ def run_booking_loop(
                 request_id,
                 "query",
                 query_courts,
-                request_guard=ensure_request_allowed,
+                request_guard=request_guard,
                 stats=stats,
                 query_date=query_date,
                 sport_short_name=SPORT_SHORT_NAME,
@@ -1344,6 +1355,8 @@ def run_booking_loop(
                     "发现目标但不会提交预约。",
                     flush=True,
                 )
+            if immediate:
+                time.sleep(interval)
             continue
 
         if not allow_booking:
@@ -1355,6 +1368,8 @@ def run_booking_loop(
             f"eligible={len(eligible)}"
         )
         if target is None:
+            if immediate:
+                time.sleep(interval)
             continue
 
         print(
@@ -1373,7 +1388,7 @@ def run_booking_loop(
                 token=token,
                 session=session,
                 request_id=request_id,
-                request_guard=ensure_request_allowed,
+                request_guard=request_guard,
                 stats=stats,
             ):
                 stats.stop_reason = "BOOKING_SUCCESS"
@@ -1482,6 +1497,8 @@ def run_booking_loop(
                     f"CORE_RETRY | category=not_open | "
                     f"target={_target_text(target)}"
                 )
+                if immediate:
+                    time.sleep(interval)
                 continue
 
             if is_transport_error(exc):
@@ -1522,6 +1539,8 @@ def run_booking_loop(
                         "priority=unchanged | "
                         f"target={_target_text(target)}"
                     )
+                if immediate:
+                    time.sleep(interval)
                 continue
 
             print(
@@ -1631,7 +1650,7 @@ def main(argv=None):
             token_source,
             query_date=query_date,
             session=session,
-            request_guard=ensure_request_allowed,
+            request_guard=None if args.immediate else ensure_request_allowed,
             stats=stats,
         )
     except CoreWindowEnded:
@@ -1718,7 +1737,10 @@ def main(argv=None):
         f"场地规则：每个重点时间段内优先 {PREFERRED_COURT_NAME}，"
         "没有则选择同时间段其他场地"
     )
-    print("自动预约窗口：07:27 预热，07:29:57–07:33 高速预约，07:33 结束")
+    if args.immediate:
+        print("运行方式：立即开始，持续查询至成功、明确异常或手动停止")
+    else:
+        print("自动预约窗口：07:27 预热，07:29:57–07:33 高速预约，07:33 结束")
     print(f"事件日志：{LOG_FILE}")
     print(f"请求耗时日志：{TIMING_LOG_FILE}")
     print(
@@ -1745,7 +1767,7 @@ def main(argv=None):
                 "startup",
                 "companion",
                 get_companion_user,
-                request_guard=ensure_request_allowed,
+                request_guard=None if args.immediate else ensure_request_allowed,
                 stats=stats,
                 student_number=COMPANION_STUDENT_NUMBER,
                 token=token,
@@ -1776,7 +1798,8 @@ def main(argv=None):
             f"REAL_BOOKING_ENABLED={REAL_BOOKING_ENABLED}"
         )
 
-        wait_until_start()
+        if not args.immediate:
+            wait_until_start()
         run_booking_loop(
             query_date=query_date,
             companion_id=companion_id,
@@ -1784,6 +1807,7 @@ def main(argv=None):
             token=token,
             session=session,
             stats=stats,
+            immediate=args.immediate,
         )
 
     except KeyboardInterrupt:

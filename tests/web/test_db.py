@@ -214,7 +214,7 @@ def test_versioned_migrations_preserve_old_tasks_and_prevent_duplicate_daily_tas
     )
     migrate_database(connection)
     migrate_database(connection)
-    assert {row[0] for row in connection.execute("SELECT version FROM schema_migrations")} == {1, 2, 3}
+    assert {row[0] for row in connection.execute("SELECT version FROM schema_migrations")} == {1, 2, 3, 4}
     assert connection.execute("SELECT source FROM booking_tasks WHERE id=1").fetchone()[0] == "one_shot"
     cursor = connection.execute(
         "INSERT INTO daily_booking_plans (user_id,enabled,target_day,venue,sport,companion_id,"

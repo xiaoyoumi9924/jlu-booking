@@ -121,6 +121,42 @@ class FakeWorker:
         self.cleaned.append(launch.task_id)
 
 
+def test_scheduler_shutdown_during_final_submission_is_unknown(database, tmp_path):
+    _, task_id = _insert_task(database, username="shutdown-submitting")
+
+    class SubmittingWorker(FakeWorker):
+        def start(self, launch):
+            running = super().start(launch)
+            write_run_status(
+                "running",
+                path=launch.runtime_dir / "state" / "last_run.json",
+                phase="submitting",
+            )
+            return running
+
+    class OneTickStop:
+        def __init__(self):
+            self.waited = False
+
+        def is_set(self):
+            return self.waited
+
+        def wait(self, _seconds):
+            self.waited = True
+
+    worker = SubmittingWorker(tmp_path / "workers")
+    scheduler = Scheduler(
+        database,
+        worker,
+        clock=lambda: datetime(2026, 9, 22, 7, 27, tzinfo=BEIJING),
+    )
+    scheduler.run_forever(stop_event=OneTickStop())
+    row = database.execute(
+        "SELECT status FROM booking_tasks WHERE id=?", (task_id,)
+    ).fetchone()
+    assert row["status"] == "submission_unknown"
+
+
 @pytest.fixture
 def database(tmp_path):
     connection = connect_database(tmp_path / "web.sqlite3")
@@ -170,6 +206,33 @@ def test_one_tick_claims_every_due_task_and_writes_run_rows(database, tmp_path):
     assert database.execute(
         "SELECT COUNT(*) FROM booking_tasks WHERE status = 'running'"
     ).fetchone()[0] == 3
+
+
+def test_immediate_task_starts_outside_daily_window_and_can_be_stopped(database, tmp_path):
+    user_id, task_id = _insert_task(database, username="now-user")
+    database.execute("UPDATE booking_tasks SET start_mode='immediate' WHERE id=?", (task_id,))
+    worker = FakeWorker(tmp_path / "runtime")
+    scheduler = Scheduler(database, worker)
+    now = datetime(2026, 9, 22, 12, 0, tzinfo=BEIJING)
+    assert scheduler.run_once(now).started_task_ids == (task_id,)
+    TaskService(database).request_stop(user_id, task_id, now=now)
+    tick = scheduler.run_once(now.replace(second=1))
+    assert tick.stopped_task_ids == (task_id,)
+    assert worker.running[task_id].terminated
+
+
+def test_stopping_during_final_submission_marks_outcome_unknown(database, tmp_path):
+    user_id, task_id = _insert_task(database, username="submitting-user")
+    database.execute("UPDATE booking_tasks SET start_mode='immediate' WHERE id=?", (task_id,))
+    worker = FakeWorker(tmp_path / "runtime")
+    scheduler = Scheduler(database, worker)
+    now = datetime(2026, 9, 22, 12, 0, tzinfo=BEIJING)
+    scheduler.run_once(now)
+    status_path = tmp_path / "runtime" / f"user-{user_id}" / f"task-{task_id}" / "state" / "last_run.json"
+    write_run_status("running", path=status_path, phase="submitting")
+    TaskService(database).request_stop(user_id, task_id, now=now)
+    scheduler.run_once(now.replace(second=1))
+    assert TaskService(database).get_for_user(user_id, task_id).status == "submission_unknown"
 
 
 def test_submitting_manual_attempt_pauses_only_its_owner_until_rejected(database, tmp_path):
@@ -304,6 +367,21 @@ def test_reconcile_corrupt_status_becomes_error(database, tmp_path):
     scheduler = Scheduler(database, FakeWorker(tmp_path / "other"))
     scheduler.reconcile(datetime(2026, 9, 22, 7, 28, tzinfo=BEIJING))
     assert TaskService(database).get_for_user(user_id, task_id).status == "error"
+
+
+def test_reconcile_interrupted_submission_is_unknown(database, tmp_path):
+    user_id, task_id = _insert_task(database, username="alice", status="running")
+    runtime = tmp_path / "runtime" / f"task-{task_id}"
+    write_run_status("running", path=runtime / "state" / "last_run.json", phase="submitting")
+    database.execute(
+        "INSERT INTO task_runs (task_id, runtime_path, log_path, started_at) "
+        "VALUES (?, ?, ?, ?)",
+        (task_id, str(runtime), str(runtime / "worker.log"), "2026-09-22T12:00:00+08:00"),
+    )
+    Scheduler(database, FakeWorker(tmp_path / "other")).reconcile(
+        datetime(2026, 9, 22, 12, 1, tzinfo=BEIJING)
+    )
+    assert TaskService(database).get_for_user(user_id, task_id).status == "submission_unknown"
 
 
 def test_recovery_at_0728_starts_once_but_core_boundary_marks_missed(tmp_path):
