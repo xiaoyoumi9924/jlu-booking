@@ -1,0 +1,8 @@
+{% extends "admin/shell.html" %}
+{% block title %}预约统计 · 管理后台{% endblock %}
+{% block admin_heading %}预约统计{% endblock %}
+{% block content %}
+<p class="admin-subtitle">统计网页自动预约任务；手动预约未纳入此口径</p>
+<div class="admin-v8-metrics three"><div class="admin-v8-metric"><div><small>任务总数</small><strong>{{ totals.total }}</strong></div></div><div class="admin-v8-metric"><div><small>成功任务</small><strong>{{ totals.success or 0 }}</strong></div></div><div class="admin-v8-metric"><div><small>创建过任务的用户</small><strong>{{ totals.users }}</strong></div></div></div>
+<div class="admin-v8-two"><section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>近七天创建任务</h2><p>按任务创建日期统计，绿色部分为当前成功状态</p></div></div><div class="admin-v8-bars">{% for day, values in daily.items() %}<div><span>{{ day[5:] }}</span><div class="admin-v8-bar-track"><i style="width: {{ (values.total / max_daily * 100)|round }}%"></i><b style="width: {{ (values.success / max_daily * 100)|round }}%"></b></div><strong>{{ values.total }}</strong></div>{% endfor %}</div></section><section class="admin-v8-card"><div class="admin-v8-card-head"><h2>项目分布</h2></div><div class="admin-v8-distribution">{% for item in sports %}<div><span>{{ item.sport }}</span><div class="admin-v8-bar-track"><i style="width: {{ (item.total / totals.total * 100)|round if totals.total else 0 }}%"></i></div><strong>{{ item.total }}</strong></div>{% else %}<p class="admin-empty">暂无任务</p>{% endfor %}</div></section></div>
+{% endblock %}

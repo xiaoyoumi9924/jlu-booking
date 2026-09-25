@@ -1,0 +1,7 @@
+{% extends "admin/shell.html" %}
+{% block title %}系统设置 · 管理后台{% endblock %}
+{% block admin_heading %}系统设置{% endblock %}
+{% block content %}
+<p class="admin-subtitle">查看当前服务的安全配置与容量参数</p>
+<div class="admin-v8-two"><section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>系统信息</h2><p>来自正在运行的网页服务</p></div></div><dl class="admin-v8-facts"><div><dt>Python 版本</dt><dd>{{ info.python }}</dd></div><div><dt>数据库结构版本</dt><dd>{{ info.schema }}</dd></div><div><dt>安全 Cookie</dt><dd>{{ '已开启' if info.cookie_secure else '未开启' }}</dd></div></dl></section><section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>容量配置</h2><p>服务启动时载入，修改需要运维部署</p></div></div><dl class="admin-v8-facts"><div><dt>正常用户上限</dt><dd>{{ info.user_limit }}</dd></div><div><dt>待绑定账号上限</dt><dd>{{ info.pending_limit }}</dd></div><div><dt>每日任务上限</dt><dd>{{ info.daily_task_limit }}</dd></div></dl></section></div>
+{% endblock %}

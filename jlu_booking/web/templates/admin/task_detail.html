@@ -2,31 +2,12 @@
 {% block title %}任务 #{{ task.id }} · 管理后台{% endblock %}
 {% block admin_heading %}任务详情{% endblock %}
 {% block content %}
-<div class="admin-content-intro"><div><p class="eyebrow">运行记录</p><h2>任务 #{{ task.id }}</h2><p>{{ username }} · {{ task.execution_date }} · {{ task.venue }} · {{ task.sport }}</p></div><a class="button secondary" href="/admin/tasks">返回任务列表</a></div>
-<div class="admin-detail-grid">
-  <section class="admin-detail-card">
-    <h2>任务信息</h2>
-    <p>用户：{{ username }}</p>
-    <p>状态：<span class="badge status-{{ task.status }}">{{ task.status }}</span></p>
-    <p>运行阶段：{{ phase or "尚未开始" }}</p>
-    <p>执行日：{{ task.execution_date }} · {{ task.venue }} · {{ task.sport }}</p>
-    <p>首选场地：{{ task.preferred_court_number }} 号场</p>
-    {% if run %}
-    <p>开始：{{ run.started_at }}{% if run.finished_at %} · 结束：{{ run.finished_at }}{% endif %}</p>
-    <p>最终状态：{{ run.final_status or "运行中" }}{% if run.exit_code is not none %} · 退出码：{{ run.exit_code }}{% endif %}</p>
-    {% if run.detail %}<p>结果说明：{{ run.detail }}</p>{% endif %}
-    {% endif %}
-    {% if task.status == 'running' and not task.stop_requested_at %}
-    <form method="post" action="/admin/tasks/{{ task.id }}/stop" data-confirm-stop>
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="danger" type="submit">请求停止</button>
-    </form>
-    <p class="warning">停止任务不代表预约一定未提交；若请求已经发出，请到学校系统核对最终结果。</p>
-    {% endif %}
+{% set labels = {'scheduled':'等待启动','running':'运行中','success':'预约成功','no_result':'未找到场地','token_invalid':'Token 失效','account_blocked':'账号受限','daily_limit':'预约已达上限','submission_unknown':'结果待核对','network_unavailable':'网络不可用','stopped':'已停止','error':'运行出错','cancelled':'已取消'} %}
+<div class="admin-v8-back"><a href="/admin/tasks">← 返回任务列表</a></div>
+<div class="admin-v8-two">
+  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>任务概览</h2><p>预约任务的基本信息与当前状态</p></div></div><div class="admin-v8-task-status status-{{ task.status }}"><span class="admin-v8-avatar"><svg class="ui-icon"><use href="#icon-check"/></svg></span><div><strong>{{ labels.get(task.status,task.status) }}</strong><small>{{ phase or '尚未开始运行' }}</small></div></div><dl class="admin-v8-facts"><div><dt>用户</dt><dd><a href="/admin/users/{{ task.user_id }}">{{ username }}</a></dd></div><div><dt>运行模式</dt><dd>{{ '立即运行' if task.start_mode=='immediate' else '定时启动' }}</dd></div><div><dt>执行日 / 目标日</dt><dd>{{ task.execution_date }} · {{ '当天' if task.target_day=='today' else '次日' }}</dd></div><div><dt>场馆 / 项目</dt><dd>{{ task.venue }} · {{ task.sport }}</dd></div><div><dt>首选场地</dt><dd>{{ task.preferred_court_number }} 号场</dd></div><div><dt>预约模式</dt><dd>{{ '真实预约' if task.real_booking_enabled else '仅扫描' }}</dd></div><div><dt>重点时间</dt><dd>{% for start,end in task.time_priority %}{{ start }}–{{ end }}{% if not loop.last %} › {% endif %}{% endfor %}</dd></div>{% if run %}<div><dt>开始 / 结束</dt><dd>{{ run.started_at[:19] | replace('T',' ') }}{% if run.finished_at %}<br>{{ run.finished_at[:19] | replace('T',' ') }}{% endif %}</dd></div><div><dt>最终状态</dt><dd>{{ labels.get(run.final_status,run.final_status) if run.final_status else '运行中' }}{% if run.exit_code is not none %} · 退出码 {{ run.exit_code }}{% endif %}</dd></div>{% if run.detail %}<div><dt>结果说明</dt><dd>{{ run.detail }}</dd></div>{% endif %}{% endif %}</dl>
+  {% if task.status == 'running' and not task.stop_requested_at %}<div class="admin-v8-task-action"><form method="post" action="/admin/tasks/{{ task.id }}/stop" data-confirm-stop><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger" type="submit">请求停止</button></form><p>停止请求无法撤回已经提交给学校系统的预约。</p></div>{% endif %}
   </section>
-  <section class="admin-detail-card">
-    <h2>脱敏运行日志</h2>
-    <pre class="log-region">{% if log_lines %}{{ log_lines | join('\n') }}{% else %}暂无日志{% endif %}</pre>
-  </section>
+  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>运行日志</h2><p>运行过程中的脱敏日志信息</p></div><span>{{ log_lines|length }} 行</span></div><div class="admin-v8-log-wrap"><pre class="log-region">{% if log_lines %}{{ log_lines | join('\n') }}{% else %}暂无日志{% endif %}</pre></div></section>
 </div>
 {% endblock %}

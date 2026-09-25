@@ -2,18 +2,23 @@
 {% block title %}用户管理 · JLU 体育馆预约{% endblock %}
 {% block admin_heading %}用户管理{% endblock %}
 {% block content %}
-{% set status_labels = {'active': '正常', 'disabled': '已停用', 'pending_token': '待绑定 Token'} %}
-<div class="admin-content-intro"><div><p class="eyebrow">账号列表</p><h2>网页账号</h2><p>查看账号状态与凭据准备情况。完整 Token 需先重新验证管理员密码。</p></div><a class="button secondary" href="/admin/reauth">重新验证密码</a></div>
-<section class="admin-table-card" aria-label="网页用户列表"><div class="admin-table-head"><strong>网页用户</strong><span>{{ users|length }} 个账号</span></div>
-  <div class="table-wrap"><table><thead><tr><th>用户</th><th>状态</th><th>Token</th><th>同行人</th><th>管理操作</th></tr></thead><tbody>
-  {% for target, masked_token, companion in users %}<tr><td><a class="admin-user-link" href="/admin/users/{{ target.id }}">{{ target.username }}</a><small>#{{ target.id }}</small></td><td><span class="badge status-{{ target.status }}">{{ status_labels.get(target.status, target.status) }}</span></td><td class="masked">{{ masked_token }}</td><td>{{ companion }}</td><td><div class="admin-row-actions">
-    {% if target.status == 'active' %}<form method="post" action="/admin/users/{{ target.id }}/disable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">停用</button></form>{% endif %}
-    {% if target.status == 'disabled' %}<form method="post" action="/admin/users/{{ target.id }}/enable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">启用</button></form>{% endif %}
-    {% if target.status == 'pending_token' %}<form method="post" action="/admin/users/{{ target.id }}/delete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger mini">删除</button></form>{% endif %}
-    <form method="post" action="/admin/users/{{ target.id }}/reset-password" data-once-response data-reset-user-id="{{ target.id }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">重置密码</button></form>
-    <button type="button" class="secondary mini" data-token-reveal="/admin/users/{{ target.id }}/token/reveal" data-csrf="{{ csrf_token }}">查看 Token</button>
-  </div><output class="admin-secret-output" data-token-output="{{ target.id }}" aria-live="polite"></output><output class="admin-secret-output" data-password-output="{{ target.id }}" aria-live="polite"></output></td></tr>{% endfor %}
-  </tbody></table></div>
-  {% if not users %}<p class="admin-empty">暂无网页用户。</p>{% endif %}
+{% set labels = {'active':'正常','disabled':'已停用','pending_token':'待绑定 Token','deleted':'已删除'} %}
+<p class="admin-subtitle">管理网页账号、Token 绑定状态与预约使用情况</p>
+<div class="admin-v8-metrics four">
+  <div class="admin-v8-metric"><span class="admin-v7-metric-icon is-blue"><svg class="ui-icon"><use href="#icon-user"/></svg></span><div><small>用户总数</small><strong>{{ totals.all }}</strong></div></div>
+  <div class="admin-v8-metric"><span class="admin-v7-metric-icon is-green"><svg class="ui-icon"><use href="#icon-check"/></svg></span><div><small>正常用户</small><strong>{{ totals.active }}</strong></div></div>
+  <div class="admin-v8-metric"><span class="admin-v7-metric-icon is-purple"><svg class="ui-icon"><use href="#icon-link"/></svg></span><div><small>已绑定 Token</small><strong>{{ totals.bound }}</strong></div></div>
+  <div class="admin-v8-metric"><span class="admin-v7-metric-icon is-orange"><svg class="ui-icon"><use href="#icon-alert"/></svg></span><div><small>待绑定</small><strong>{{ totals.pending }}</strong></div></div>
+</div>
+<section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>用户列表</h2><p>完整 Token 需重新验证管理员密码后才可临时查看</p></div><a class="button secondary mini" href="/admin/reauth">重新验证密码</a></div>
+  <form class="admin-v8-filters" method="get"><label>搜索用户<input name="q" value="{{ query }}" placeholder="用户名"></label><label>账号状态<select name="status"><option value="">全部状态</option>{% for code, label in [('active','正常'),('pending_token','待绑定 Token'),('disabled','已停用')] %}<option value="{{ code }}" {% if status==code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label><button type="submit">查询</button><a class="button secondary" href="/admin/users">重置</a></form>
+  <div class="table-wrap"><table class="admin-v8-table"><thead><tr><th>用户</th><th>状态</th><th>JLU Token</th><th>同行人</th><th>任务数</th><th>最近活动</th><th>管理操作</th></tr></thead><tbody>
+  {% for target, masked_token, companion in users %}<tr><td><a class="admin-user-link" href="/admin/users/{{ target.id }}">{{ target.username }}</a><small>#{{ target.id }} · {{ target.created_at.strftime('%Y-%m-%d') }}</small></td><td><span class="badge status-{{ target.status }}">{{ labels.get(target.status,target.status) }}</span></td><td class="masked">{{ masked_token }}</td><td>{{ companion }}</td><td>{{ usage[target.id].task_count }}</td><td>{{ usage[target.id].last_seen[:16] | replace('T',' ') if usage[target.id].last_seen else '暂无' }}</td><td><div class="admin-row-actions"><a class="button secondary mini" href="/admin/users/{{ target.id }}">查看详情</a>
+  {% if target.status == 'active' %}<form method="post" action="/admin/users/{{ target.id }}/disable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">停用</button></form>{% endif %}
+  {% if target.status == 'disabled' %}<form method="post" action="/admin/users/{{ target.id }}/enable"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">启用</button></form>{% endif %}
+  {% if target.status == 'pending_token' %}<form method="post" action="/admin/users/{{ target.id }}/delete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger mini">删除</button></form>{% endif %}
+  <form method="post" action="/admin/users/{{ target.id }}/reset-password" data-once-response data-reset-user-id="{{ target.id }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary mini">重置密码</button></form><button type="button" class="secondary mini" data-token-reveal="/admin/users/{{ target.id }}/token/reveal" data-csrf="{{ csrf_token }}">查看 Token</button></div><output class="admin-secret-output" data-token-output="{{ target.id }}" aria-live="polite"></output><output class="admin-secret-output" data-password-output="{{ target.id }}" aria-live="polite"></output></td></tr>
+  {% else %}<tr><td colspan="7" class="admin-empty">没有符合条件的用户</td></tr>{% endfor %}</tbody></table></div>
+  <div class="admin-v8-card-foot"><span>共 {{ matching_count }} 条匹配记录 · 每页 20 条</span><span>{% if page>1 %}<a href="/admin/users?page={{ page-1 }}&amp;q={{ query | urlencode }}&amp;status={{ status }}">上一页</a>{% endif %}{% if page*20<matching_count %}<a href="/admin/users?page={{ page+1 }}&amp;q={{ query | urlencode }}&amp;status={{ status }}">下一页</a>{% endif %}</span></div>
 </section>
 {% endblock %}

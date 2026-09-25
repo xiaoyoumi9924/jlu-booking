@@ -1,7 +1,12 @@
 {% extends "admin/shell.html" %}
-{% block title %}用户详情 · JLU 体育馆预约{% endblock %}
+{% block title %}{{ target.username }} · 用户管理{% endblock %}
 {% block admin_heading %}用户详情{% endblock %}
 {% block content %}
-<div class="admin-content-intro"><div><p class="eyebrow">账号资料</p><h2>{{ target.username }}</h2><p>此页面只显示账号元数据；凭据管理操作请回到用户列表。</p></div><a class="button secondary" href="/admin/users">返回用户列表</a></div>
-<section class="admin-detail-card"><dl><dt>用户 ID</dt><dd>#{{ target.id }}</dd><dt>账号状态</dt><dd><span class="badge status-{{ target.status }}">{{ target.status }}</span></dd><dt>创建时间</dt><dd>{{ target.created_at }}</dd></dl></section>
+<div class="admin-v8-back"><a href="/admin/users">← 返回用户列表</a></div>
+<div class="admin-v8-user-head"><span class="admin-v8-avatar"><svg class="ui-icon"><use href="#icon-user"/></svg></span><div><h2>{{ target.username }}</h2><p>网页账号 #{{ target.id }} · 注册于 {{ target.created_at.strftime('%Y-%m-%d %H:%M') }}</p></div><span class="badge status-{{ target.status }}">{{ {'active':'正常','disabled':'已停用','pending_token':'待绑定 Token','deleted':'已删除'}.get(target.status,target.status) }}</span></div>
+<div class="admin-v8-two">
+  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>账号与安全</h2><p>账号资料和访问状态</p></div><svg class="ui-icon"><use href="#icon-shield"/></svg></div><dl class="admin-v8-facts"><div><dt>登录账号</dt><dd>{{ target.username }}</dd></div><div><dt>账号状态</dt><dd>{{ target.status }}</dd></div><div><dt>创建时间</dt><dd>{{ target.created_at.strftime('%Y-%m-%d %H:%M') }}</dd></div><div><dt>最近会话活动</dt><dd>{{ activity[:16] | replace('T',' ') if activity else '暂无' }}</dd></div></dl></section>
+  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>预约必备信息</h2><p>仅显示验证状态，不展示完整凭据</p></div><svg class="ui-icon"><use href="#icon-link"/></svg></div><div class="admin-v8-info-row"><span class="admin-v7-metric-icon is-green"><svg class="ui-icon"><use href="#icon-link"/></svg></span><div><strong>JLU Token</strong><small>{{ '已绑定 · ' ~ credential.verified_at[:16] if credential else '未绑定' }}</small></div></div><div class="admin-v8-info-row"><span class="admin-v7-metric-icon is-orange"><svg class="ui-icon"><use href="#icon-users"/></svg></span><div><strong>同行人</strong><small>{{ '已验证 · ' ~ companion.verified_at[:16] if companion else '未验证' }}</small></div></div></section>
+</div>
+<section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>最近预约任务</h2><p>仅显示此网页账号创建的任务</p></div><a href="/admin/tasks">全部任务 →</a></div><div class="table-wrap"><table class="admin-v8-table"><thead><tr><th>任务</th><th>场馆 / 项目</th><th>执行日</th><th>类型</th><th>状态</th><th>操作</th></tr></thead><tbody>{% for item in user_tasks %}<tr><td>#{{ item.id }}</td><td>{{ item.venue }} · {{ item.sport }}</td><td>{{ item.execution_date }}</td><td>{{ '每日自动' if item.source=='daily' else '一次性' }}</td><td><span class="badge status-{{ item.status }}">{{ item.status }}</span></td><td><a href="/admin/tasks/{{ item.id }}">查看详情 →</a></td></tr>{% else %}<tr><td colspan="6" class="admin-empty">暂无预约任务</td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}

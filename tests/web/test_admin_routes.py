@@ -101,7 +101,7 @@ def _admin_login(client, services):
     return admin
 
 
-@pytest.mark.parametrize("path", ["/admin", "/admin/users", "/admin/tasks", "/admin/audit"])
+@pytest.mark.parametrize("path", ["/admin", "/admin/users", "/admin/tasks", "/admin/audit", "/admin/logs", "/admin/exceptions", "/admin/stats", "/admin/monitor", "/admin/settings"])
 def test_ordinary_user_cannot_open_admin_pages_or_infer_ids(web, path):
     client, services = web
     _create_active(services)
@@ -119,6 +119,40 @@ def test_admin_lists_users_and_counts(web):
     assert "alice" in page.text
     assert "priv*****oken" in page.text
     assert "private-token" not in page.text
+
+
+def test_admin_new_views_are_source_backed_and_invitation_removed(web):
+    client, services = web
+    user = _create_active(services)
+    companion = services.credentials.decrypt_companion(user.id)
+    task = services.tasks.create(user.id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", companion.id, 3,
+        [["15:30", "17:30"]], False,
+    ), now=NOW)
+    services.connection.execute(
+        "UPDATE booking_tasks SET status='error' WHERE id=?", (task.id,),
+    )
+    _admin_login(client, services)
+    for path, marker in (
+        ("/admin/logs", "暂无运行日志"),
+        ("/admin/exceptions", "运行出错"),
+        ("/admin/stats", "近七天创建任务"),
+        ("/admin/monitor", "当前任务"),
+        ("/admin/settings", "容量配置"),
+        (f"/admin/users/{user.id}", "预约必备信息"),
+    ):
+        page = client.get(path)
+        assert page.status_code == 200, path
+        assert marker in page.text, path
+        assert "邀请管理" not in page.text
+        assert "private-token" not in page.text
+        assert "20260001" not in page.text
+    filtered = client.get("/admin/tasks?status=error")
+    assert "运行出错" in filtered.text
+    assert "前卫体育馆" in filtered.text
+    assert "邀请管理" not in filtered.text
+    assert "没有符合条件的任务" in client.get("/admin/tasks?status=success").text
+    assert "没有符合条件的用户" in client.get("/admin/users?q=does-not-exist").text
 
 
 def test_token_reveal_requires_recent_admin_password(web):
@@ -288,6 +322,10 @@ def test_admin_task_detail_shows_sanitized_result_and_log(web):
         "INSERT INTO task_runs (task_id,runtime_path,log_path,started_at,finished_at,final_status,detail) "
         "VALUES (?,?,?,?,?,'submission_unknown','manual check')",
         (task.id, str(runtime), str(log), NOW.isoformat(), NOW.isoformat()),
+    )
+    services.connection.execute(
+        "UPDATE task_runs SET detail=? WHERE task_id=?",
+        ("manual check private-token 20260001", task.id),
     )
     services.connection.execute(
         "UPDATE booking_tasks SET status='submission_unknown' WHERE id=?", (task.id,)

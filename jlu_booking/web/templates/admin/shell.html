@@ -6,18 +6,25 @@
 <details open class="admin-nav" data-admin-nav>
   <summary>管理导航</summary>
   <div class="admin-nav-inner">
-    <a class="admin-brand" href="/admin" aria-label="管理员概览"><span class="admin-logo"><img src="{{ url_for('static', path='/JLU_LOGO.png') }}" alt="吉林大学校徽"></span><span class="admin-brand-copy"><strong>吉林大学</strong><small>JILIN UNIVERSITY</small></span><span class="admin-brand-title">体育馆预约助手<small>管理员工作台</small></span></a>
+    <a class="admin-brand" href="/admin" aria-label="管理概览"><span class="admin-logo"><img src="{{ url_for('static', path='/JLU_LOGO.png') }}" alt="吉林大学校徽"></span><span class="admin-brand-copy"><strong>吉林大学</strong><small>JILIN UNIVERSITY</small></span><span class="admin-brand-title">体育馆预约助手<small>管理员工作台</small></span></a>
     <nav aria-label="管理导航">
-      <div class="admin-nav-label">管理功能</div>
       <a class="admin-nav-card{% if admin_path == '/admin' %} is-active{% endif %}" href="/admin" {% if admin_path == '/admin' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-home"/></svg></span><strong>管理概览</strong></a>
+      <div class="admin-nav-label">用户与任务</div>
       <a class="admin-nav-card{% if admin_path.startswith('/admin/users') or admin_path == '/admin/reauth' %} is-active{% endif %}" href="/admin/users" {% if admin_path.startswith('/admin/users') or admin_path == '/admin/reauth' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"/></svg></span><strong>用户管理</strong></a>
       <a class="admin-nav-card{% if admin_path.startswith('/admin/tasks') %} is-active{% endif %}" href="/admin/tasks" {% if admin_path.startswith('/admin/tasks') %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-calendar"/></svg></span><strong>预约任务</strong></a>
-      <a class="admin-nav-card{% if admin_path.startswith('/admin/audit') %} is-active{% endif %}" href="/admin/audit" {% if admin_path.startswith('/admin/audit') %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-file"/></svg></span><strong>审计记录</strong></a>
+      <a class="admin-nav-card{% if admin_path == '/admin/logs' %} is-active{% endif %}" href="/admin/logs" {% if admin_path == '/admin/logs' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-file"/></svg></span><strong>运行日志</strong></a>
+      <a class="admin-nav-card{% if admin_path == '/admin/exceptions' %} is-active{% endif %}" href="/admin/exceptions" {% if admin_path == '/admin/exceptions' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-alert"/></svg></span><strong>异常记录</strong></a>
+      <div class="admin-nav-label">数据</div>
+      <a class="admin-nav-card{% if admin_path == '/admin/stats' %} is-active{% endif %}" href="/admin/stats" {% if admin_path == '/admin/stats' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-activity"/></svg></span><strong>预约统计</strong></a>
+      <div class="admin-nav-label">系统</div>
+      <a class="admin-nav-card{% if admin_path == '/admin/monitor' %} is-active{% endif %}" href="/admin/monitor" {% if admin_path == '/admin/monitor' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"/></svg></span><strong>运行监控</strong></a>
+      <a class="admin-nav-card{% if admin_path == '/admin/settings' %} is-active{% endif %}" href="/admin/settings" {% if admin_path == '/admin/settings' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-settings"/></svg></span><strong>系统设置</strong></a>
+      <a class="admin-nav-card{% if admin_path == '/admin/audit' %} is-active{% endif %}" href="/admin/audit" {% if admin_path == '/admin/audit' %}aria-current="page"{% endif %}><span><svg class="ui-icon" aria-hidden="true"><use href="#icon-shield"/></svg></span><strong>审计记录</strong></a>
     </nav>
-    <p class="admin-nav-foot">管理操作会留下审计记录</p>
+    <p class="admin-nav-foot">求实创新 · 励志图强<br><small>场地数据以学校系统为准</small></p>
   </div>
 </details>
 {% endblock %}
 {% block content_header %}
-<header class="admin-workspace-head"><div><p>管理员工作台</p><h1>{% block admin_heading %}管理概览{% endblock %}</h1></div><div class="admin-head-actions"><span>{{ admin.username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"/></svg>退出登录</button></form></div></header>
+<header class="admin-workspace-head"><div><p>管理员工作台</p><h1>{% block admin_heading %}管理概览{% endblock %}</h1></div><div class="admin-head-actions"><span class="admin-head-account"><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"/></svg>{{ admin.username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="secondary"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"/></svg>退出登录</button></form></div></header>
 {% endblock %}

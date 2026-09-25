@@ -3,19 +3,50 @@
 from __future__ import annotations
 
 import secrets
+from datetime import date, timedelta
+from platform import python_version
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from ..accounts import AccountError
-from ..db import transaction
+from ..db import TASK_STATUSES, transaction
 from ..dependencies import client_ip, current_user, now_beijing, require_csrf
 from ..security import mask_secret
 from ..tasks import TaskError
-from .task_routes import read_private_log_lines, read_private_phase
+from .task_routes import _redact_line, read_private_log_lines, read_private_phase
 
 
 router = APIRouter(prefix="/admin")
+
+ISSUE_STATUSES = ("submission_unknown", "token_invalid", "account_blocked", "network_unavailable", "error")
+
+
+def _filter_value(request: Request, name: str, allowed: set[str]) -> str:
+    value = request.query_params.get(name, "")
+    return value if value in allowed else ""
+
+
+def _page(request: Request) -> int:
+    try:
+        return max(1, min(int(request.query_params.get("page", "1")), 10000))
+    except ValueError:
+        return 1
+
+
+def _date_filter(request: Request, name: str) -> str:
+    value = request.query_params.get(name, "")
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError:
+        return ""
+
+
+def _render(request: Request, session, admin, template: str, **context):
+    return request.app.state.templates.TemplateResponse(
+        request=request, name=template,
+        context={"admin": admin, "csrf_token": session.csrf_token, **context},
+    )
 
 
 def _admin(request: Request):
@@ -54,12 +85,12 @@ async def dashboard(request: Request):
         "today_success": count("SELECT COUNT(*) FROM booking_tasks WHERE target_day='today' AND execution_date=? AND status='success'", (today,))
         + count("SELECT COUNT(*) FROM booking_tasks WHERE target_day='tomorrow' AND date(execution_date, '+1 day')=? AND status='success'", (today,))
         + count("SELECT COUNT(*) FROM manual_booking_attempts a JOIN manual_candidates c ON c.id=a.candidate_id WHERE c.query_date=? AND a.status='success'", (today,)),
-        "attention": count("SELECT COUNT(*) FROM booking_tasks WHERE status IN ('submission_unknown', 'token_invalid', 'account_blocked', 'error') AND substr(updated_at, 1, 10)=?", (today,)),
+        "attention": count("SELECT COUNT(*) FROM booking_tasks WHERE status IN ('submission_unknown', 'token_invalid', 'account_blocked', 'network_unavailable', 'error') AND substr(updated_at, 1, 10)=?", (today,)),
     }
     attention_items = connection.execute(
         "SELECT t.id, t.status, t.updated_at, u.username FROM booking_tasks t "
         "JOIN users u ON u.id=t.user_id WHERE t.status IN "
-        "('submission_unknown', 'token_invalid', 'account_blocked', 'error') "
+        "('submission_unknown', 'token_invalid', 'account_blocked', 'network_unavailable', 'error') "
         "AND substr(t.updated_at, 1, 10)=? ORDER BY t.updated_at DESC LIMIT 3", (today,)
     ).fetchall()
     recent_tasks = connection.execute(
@@ -71,7 +102,8 @@ async def dashboard(request: Request):
         request=request, name="admin/dashboard.html",
         context={"admin": admin, "csrf_token": session.csrf_token,
                  "counts": counts, "attention_items": attention_items,
-                 "recent_tasks": recent_tasks},
+                 "recent_tasks": recent_tasks,
+                 "user_limit": request.app.state.settings.user_limit},
     )
 
 
@@ -79,7 +111,7 @@ def _user_rows(request):
     services = request.app.state.services
     result = []
     rows = services.connection.execute(
-        "SELECT * FROM users WHERE role='user' ORDER BY id"
+        "SELECT * FROM users WHERE role='user' AND status!='deleted' ORDER BY id"
     ).fetchall()
     for row in rows:
         user = services.accounts._record(row)
@@ -101,10 +133,28 @@ def _user_rows(request):
 @router.get("/users")
 async def users(request: Request):
     session, admin = _admin(request)
-    return request.app.state.templates.TemplateResponse(
-        request=request, name="admin/users.html",
-        context={"admin": admin, "csrf_token": session.csrf_token, "users": _user_rows(request)},
-    )
+    connection = request.app.state.services.connection
+    rows = _user_rows(request)
+    status = _filter_value(request, "status", {"active", "disabled", "pending_token"})
+    query = request.query_params.get("q", "").strip()[:60]
+    filtered = [row for row in rows if (not status or row[0].status == status)
+                and (not query or query.casefold() in row[0].username.casefold())]
+    page = _page(request)
+    matching_count = len(filtered)
+    filtered = filtered[(page - 1) * 20:page * 20]
+    usage = {row["id"]: row for row in connection.execute(
+        "SELECT u.id, (SELECT COUNT(*) FROM booking_tasks t WHERE t.user_id=u.id) task_count, "
+        "(SELECT MAX(s.last_seen_at) FROM web_sessions s WHERE s.user_id=u.id) last_seen "
+        "FROM users u WHERE u.role='user'"
+    )}
+    return _render(request, session, admin, "admin/users.html", users=filtered,
+                   status=status, query=query, page=page, matching_count=matching_count,
+                   usage=usage, totals={
+                       "all": sum(user.status != "deleted" for user, *_ in rows),
+                       "active": sum(user.status == "active" for user, *_ in rows),
+                       "bound": connection.execute("SELECT COUNT(*) FROM user_credentials c JOIN users u ON u.id=c.user_id WHERE u.role='user' AND u.status!='deleted'").fetchone()[0],
+                       "pending": sum(user.status == "pending_token" for user, *_ in rows),
+                   })
 
 
 @router.get("/users/{user_id}")
@@ -116,10 +166,14 @@ async def user_detail(request: Request, user_id: int):
     if row is None:
         raise HTTPException(404, "页面不存在。")
     user = request.app.state.services.accounts._record(row)
-    return request.app.state.templates.TemplateResponse(
-        request=request, name="admin/user_detail.html",
-        context={"admin": admin, "csrf_token": session.csrf_token, "target": user},
-    )
+    connection = request.app.state.services.connection
+    credential = connection.execute("SELECT verified_at, last_status FROM user_credentials WHERE user_id=?", (user_id,)).fetchone()
+    companion = connection.execute("SELECT verified_at FROM companions WHERE user_id=?", (user_id,)).fetchone()
+    activity = connection.execute("SELECT MAX(last_seen_at) FROM web_sessions WHERE user_id=?", (user_id,)).fetchone()[0]
+    user_tasks = connection.execute("SELECT id, venue, sport, execution_date, status, source FROM booking_tasks WHERE user_id=? ORDER BY id DESC LIMIT 12", (user_id,)).fetchall()
+    return _render(request, session, admin, "admin/user_detail.html", target=user,
+                   credential=credential, companion=companion, activity=activity,
+                   user_tasks=user_tasks)
 
 
 async def _account_action(request, user_id, csrf_token, action):
@@ -301,14 +355,26 @@ async def reveal_token(request: Request, user_id: int, csrf_token: str = Form(""
 @router.get("/tasks")
 async def tasks(request: Request):
     session, admin = _admin(request)
-    rows = request.app.state.services.connection.execute(
+    connection = request.app.state.services.connection
+    status = _filter_value(request, "status", set(TASK_STATUSES))
+    venue = _filter_value(request, "venue", {"前卫体育馆", "宋治平体育馆"})
+    query = request.query_params.get("q", "").strip()[:60]
+    day = _date_filter(request, "day")
+    where = ("FROM booking_tasks t JOIN users u ON u.id=t.user_id "
+             "WHERE (?='' OR t.status=?) AND (?='' OR t.venue=?) AND (?='' OR t.execution_date=?) "
+             "AND (?='' OR u.username LIKE ?)")
+    params = (status, status, venue, venue, day, day, query, f"%{query}%")
+    page = _page(request)
+    total = connection.execute("SELECT COUNT(*) " + where, params).fetchone()[0]
+    rows = connection.execute(
         "SELECT t.*, u.username FROM booking_tasks t JOIN users u ON u.id=t.user_id "
-        "ORDER BY t.id DESC"
+        "WHERE (?='' OR t.status=?) AND (?='' OR t.venue=?) AND (?='' OR t.execution_date=?) "
+        "AND (?='' OR u.username LIKE ?) ORDER BY t.id DESC LIMIT 30 OFFSET ?",
+        (*params, (page - 1) * 30),
     ).fetchall()
-    return request.app.state.templates.TemplateResponse(
-        request=request, name="admin/tasks.html",
-        context={"admin": admin, "csrf_token": session.csrf_token, "tasks": rows},
-    )
+    return _render(request, session, admin, "admin/tasks.html", tasks=rows,
+                   status=status, venue=venue, query=query, day=day,
+                   page=page, total=total)
 
 
 @router.get("/tasks/{task_id}")
@@ -328,6 +394,16 @@ async def task_detail(request: Request, task_id: int):
         "FROM task_runs WHERE task_id=?",
         (task_id,),
     ).fetchone()
+    if run is not None:
+        run = dict(run)
+        try:
+            secrets_to_hide = [
+                services.credentials.decrypt_token(task.user_id),
+                services.credentials.decrypt_companion(task.user_id).student_number,
+            ]
+            run["detail"] = _redact_line(run["detail"] or "", secrets_to_hide)
+        except Exception:
+            run["detail"] = ""
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="admin/task_detail.html",
@@ -384,11 +460,122 @@ async def stop_task(request: Request, task_id: int, csrf_token: str = Form("")):
 @router.get("/audit")
 async def audit(request: Request):
     session, admin = _admin(request)
-    rows = request.app.state.services.connection.execute(
-        "SELECT a.*, u.username AS admin_username FROM audit_events a "
-        "JOIN users u ON u.id=a.admin_id ORDER BY a.id DESC LIMIT 500"
+    connection = request.app.state.services.connection
+    action = request.query_params.get("action", "").strip()[:60]
+    allowed = {row[0] for row in connection.execute("SELECT DISTINCT action FROM audit_events")}
+    if action not in allowed:
+        action = ""
+    page = _page(request)
+    total = connection.execute("SELECT COUNT(*) FROM audit_events WHERE (?='' OR action=?)", (action, action)).fetchone()[0]
+    rows = connection.execute(
+        "SELECT a.*, u.username AS admin_username, t.username AS target_username "
+        "FROM audit_events a JOIN users u ON u.id=a.admin_id "
+        "LEFT JOIN users t ON t.id=a.target_user_id "
+        "WHERE (?='' OR a.action=?) ORDER BY a.id DESC LIMIT 30 OFFSET ?",
+        (action, action, (page - 1) * 30),
     ).fetchall()
-    return request.app.state.templates.TemplateResponse(
-        request=request, name="admin/audit.html",
-        context={"admin": admin, "csrf_token": session.csrf_token, "events": rows},
-    )
+    return _render(request, session, admin, "admin/audit.html", events=rows,
+                   action=action, actions=sorted(allowed), page=page, total=total)
+
+
+@router.get("/logs")
+async def logs(request: Request):
+    session, admin = _admin(request)
+    connection = request.app.state.services.connection
+    query = request.query_params.get("q", "").strip()[:60]
+    status = _filter_value(request, "status", set(TASK_STATUSES))
+    day = _date_filter(request, "day")
+    page = _page(request)
+    where = ("FROM task_runs r JOIN booking_tasks t ON t.id=r.task_id "
+             "JOIN users u ON u.id=t.user_id WHERE (?='' OR u.username LIKE ?) "
+             "AND (?='' OR t.status=?) AND (?='' OR substr(r.started_at,1,10)=?)")
+    params = (query, f"%{query}%", status, status, day, day)
+    total = connection.execute("SELECT COUNT(*) " + where, params).fetchone()[0]
+    rows = connection.execute(
+        "SELECT r.task_id, r.started_at, r.finished_at, r.final_status, "
+        "t.status, t.venue, t.sport, u.username " + where +
+        " ORDER BY r.started_at DESC LIMIT 30 OFFSET ?", (*params, (page-1)*30),
+    ).fetchall()
+    return _render(request, session, admin, "admin/logs.html", runs=rows,
+                   query=query, status=status, day=day, page=page, total=total)
+
+
+@router.get("/exceptions")
+async def exceptions(request: Request):
+    session, admin = _admin(request)
+    connection = request.app.state.services.connection
+    status = _filter_value(request, "status", set(ISSUE_STATUSES))
+    query = request.query_params.get("q", "").strip()[:60]
+    day = _date_filter(request, "day")
+    page = _page(request)
+    where = ("FROM booking_tasks t JOIN users u ON u.id=t.user_id "
+             "WHERE t.status IN ('submission_unknown','token_invalid','account_blocked','network_unavailable','error') "
+             "AND (?='' OR t.status=?) AND (?='' OR u.username LIKE ?) "
+             "AND (?='' OR substr(t.updated_at,1,10)=?)")
+    params = (status, status, query, f"%{query}%", day, day)
+    filtered_total = connection.execute("SELECT COUNT(*) " + where, params).fetchone()[0]
+    rows = connection.execute(
+        "SELECT t.id, t.status, t.updated_at, t.venue, t.sport, u.username "
+        + where + " ORDER BY t.updated_at DESC LIMIT 30 OFFSET ?",
+        (*params, (page-1)*30),
+    ).fetchall()
+    counts = {row["status"]: row["n"] for row in connection.execute(
+        "SELECT status, COUNT(*) n FROM booking_tasks WHERE status IN "
+        "('submission_unknown','token_invalid','account_blocked','network_unavailable','error') GROUP BY status"
+    )}
+    return _render(request, session, admin, "admin/exceptions.html", items=rows,
+                   status=status, query=query, day=day, page=page,
+                   filtered_total=filtered_total, counts=counts,
+                   total=sum(counts.values()))
+
+
+@router.get("/stats")
+async def stats(request: Request):
+    session, admin = _admin(request)
+    connection = request.app.state.services.connection
+    today = now_beijing().date()
+    days = [(today - timedelta(days=offset)).isoformat() for offset in range(6, -1, -1)]
+    daily = {day: {"total": 0, "success": 0} for day in days}
+    for row in connection.execute(
+        "SELECT substr(created_at,1,10) day, status, COUNT(*) n FROM booking_tasks "
+        "WHERE substr(created_at,1,10)>=? GROUP BY day,status", (days[0],)
+    ):
+        if row["day"] in daily:
+            daily[row["day"]]["total"] += row["n"]
+            if row["status"] == "success":
+                daily[row["day"]]["success"] += row["n"]
+    sports = connection.execute("SELECT sport, COUNT(*) total, SUM(status='success') success FROM booking_tasks GROUP BY sport ORDER BY total DESC").fetchall()
+    totals = connection.execute("SELECT COUNT(*) total, SUM(status='success') success, COUNT(DISTINCT user_id) users FROM booking_tasks").fetchone()
+    return _render(request, session, admin, "admin/stats.html", daily=daily,
+                   sports=sports, totals=totals, max_daily=max([1] + [v["total"] for v in daily.values()]))
+
+
+@router.get("/monitor")
+async def monitor(request: Request):
+    session, admin = _admin(request)
+    connection = request.app.state.services.connection
+    active = connection.execute(
+        "SELECT t.id,t.status,t.venue,t.sport,t.execution_date,t.updated_at,u.username "
+        "FROM booking_tasks t JOIN users u ON u.id=t.user_id "
+        "WHERE t.status IN ('running','scheduled') ORDER BY t.status,t.execution_date,t.id LIMIT 100"
+    ).fetchall()
+    recent = connection.execute(
+        "SELECT r.task_id,r.started_at,r.finished_at,r.final_status,u.username "
+        "FROM task_runs r JOIN booking_tasks t ON t.id=r.task_id "
+        "JOIN users u ON u.id=t.user_id ORDER BY r.started_at DESC LIMIT 8"
+    ).fetchall()
+    return _render(request, session, admin, "admin/monitor.html", active=active, recent=recent)
+
+
+@router.get("/settings")
+async def settings(request: Request):
+    session, admin = _admin(request)
+    configured = request.app.state.settings
+    connection = request.app.state.services.connection
+    schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+    return _render(request, session, admin, "admin/settings.html", info={
+        "python": python_version(), "schema": schema_version,
+        "user_limit": configured.user_limit, "pending_limit": configured.pending_limit,
+        "daily_task_limit": configured.daily_task_limit,
+        "cookie_secure": configured.cookie_secure,
+    })
