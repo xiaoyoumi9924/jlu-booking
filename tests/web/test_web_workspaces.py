@@ -239,9 +239,8 @@ def test_personal_center_groups_credentials_security_and_history(workspace):
     assert page.status_code == 200
     assert 'class="profile-identity"' not in page.text
     assert 'class="profile-cards"' not in page.text
-    assert 'class="account-overview"' in page.text
-    assert 'class="account-actions"' in page.text
-    assert 'class="account-history"' in page.text
+    assert 'class="profile-v7-grid"' in page.text
+    assert 'class="profile-records"' in page.text
     assert 'action="/profile/token"' in page.text
     assert 'action="/profile/companion"' in page.text
     assert 'href="/change-password"' in page.text
@@ -376,9 +375,8 @@ def test_personal_center_separates_credentials_and_owned_history(workspace):
     client, _admin_client, _services = workspace
     _login(client, "alice", "long password value")
     html = client.get("/profile").text
-    assert 'class="account-overview"' in html
-    assert 'class="account-actions"' in html
-    assert 'class="account-history"' in html
+    assert 'class="profile-v7-grid"' in html
+    assert 'class="profile-records"' in html
     assert 'action="/profile/token"' in html
     assert 'action="/profile/companion"' in html
     assert "我的预约记录" in html
@@ -399,6 +397,79 @@ def test_admin_console_has_independent_clear_navigation_and_overview(workspace):
     assert 'action="/admin/users/' in users
     assert 'data-password-output=' in users
     assert "用户管理" in users
+
+
+def test_task_detail_uses_overview_and_log_workspace_with_safe_configuration(workspace):
+    client, _admin_client, services = workspace
+    user = services.accounts.find_by_username("alice")
+    companion = services.credentials.save_companion(user.id, "20260001", now=NOW)
+    task = services.tasks.create(user.id, TaskDraft(
+        "today", "前卫体育馆", "羽毛球", companion.id, 3,
+        [["15:30", "17:30"], ["17:30", "19:30"]], True,
+    ), now=NOW, immediate=True)
+    _login(client, "alice", "long password value")
+
+    page = client.get(f"/tasks/{task.id}")
+    assert page.status_code == 200
+    assert 'class="task-overview-card"' in page.text
+    assert 'class="task-log-card"' in page.text
+    assert 'data-refresh-task' in page.text
+    assert 'data-log-expand' in page.text
+    assert 'data-go-back' in page.text
+    assert '>返回<' in page.text
+    assert '返回场地查询' not in page.text
+    assert 'action="/tasks/' in page.text
+    assert "15:30–17:30" in page.text
+    assert "20260001" not in page.text
+    assert 'data-task-status-url=' in page.text
+
+
+def test_redesigned_profile_and_navigation_keep_owned_actions(workspace):
+    client, _admin_client, services = workspace
+    user = services.accounts.find_by_username("alice")
+    services.credentials.save_companion(user.id, "20260001", now=NOW)
+    _login(client, "alice", "long password value")
+
+    page = client.get("/profile")
+    assert 'class="profile-v7-grid"' in page.text
+    assert 'class="profile-records"' in page.text
+    assert 'action="/profile/token"' in page.text
+    assert 'action="/profile/companion"' in page.text
+    assert 'href="/change-password"' in page.text
+    assert 'class="ui-icon"' in page.text
+    assert "alice-private-token" not in page.text
+    assert "20260001" not in page.text
+    for label in ("场地查询", "启动预约", "自动预约", "个人中心"):
+        assert label in page.text
+
+
+def test_admin_dashboard_uses_real_aggregates_and_existing_destinations(workspace):
+    _client, admin_client, services = workspace
+    user = services.accounts.find_by_username("alice")
+    companion = services.credentials.save_companion(user.id, "20260001", now=NOW)
+    task = services.tasks.create(user.id, TaskDraft(
+        "today", "前卫体育馆", "羽毛球", companion.id, 3,
+        [["15:30", "17:30"]], True,
+    ), now=NOW, immediate=True)
+    services.connection.execute(
+        "UPDATE booking_tasks SET status='success' WHERE id=?", (task.id,)
+    )
+    _login(admin_client, "owner", "owner password value")
+
+    page = admin_client.get("/admin")
+    assert page.status_code == 200
+    assert 'data-admin-metric="users"' in page.text
+    assert 'data-admin-metric="bound"' in page.text
+    assert 'data-admin-metric="today-success"' in page.text
+    for metric in ("users", "bound", "today-success"):
+        assert re.search(rf'data-admin-metric="{metric}"[^>]*>.*?<strong>1</strong>', page.text, re.S)
+    assert 'class="admin-v7-status"' in page.text
+    assert 'class="admin-v7-recent"' in page.text
+    assert f'href="/admin/tasks/{task.id}"' in page.text
+    assert 'href="/admin/users"' in page.text
+    assert 'href="/admin/audit"' in page.text
+    assert "alice-private-token" not in page.text
+    assert "320 ms" not in page.text
 
 
 def test_edit_auto_booking_preserves_saved_priority_order(workspace, monkeypatch):

@@ -1,29 +1,32 @@
 {% extends "user_shell.html" %}
 {% block title %}任务 #{{ task.id }} · JLU 体育馆预约{% endblock %}
-{% block workspace_title %}预约任务 #{{ task.id }}{% endblock %}
 {% block content %}
-{% set status_labels = {'scheduled': '即将启动', 'running': '运行中', 'success': '预约成功', 'no_result': '未找到场地', 'token_invalid': '登录失效', 'account_blocked': '账号受限', 'daily_limit': '预约已达上限', 'submission_unknown': '结果待核对', 'network_unavailable': '网络不可用', 'stopped': '已停止', 'error': '运行出错', 'cancelled': '已取消'} %}
-<h1 class="workspace-subpage-title">预约任务 #{{ task.id }}</h1>
-<div class="workspace-page-toolbar"><span></span><a href="/">返回场地查询</a></div>
-<div class="shell-grid" data-task-status-url="/tasks/{{ task.id }}/status" data-poll-ms="3000">
-  <section class="card workspace-form-card">
-    <h2>任务状态</h2>
-    <p><span class="badge status-{{ task.status }}" data-task-status>{{ status_labels.get(task.status, task.status) }}</span></p>
-    <p>运行阶段：<span data-task-phase>尚未开始</span></p>
-    <p>{% if task.start_mode == 'immediate' %}立即运行 · {% else %}执行日：{{ task.execution_date }} · {% endif %}目标日：{{ target_date }}</p>
-    <p>{{ task.venue }} · {{ task.sport }} · 首选 {{ task.preferred_court_number }} 号场</p>
-    <p>模式：{% if task.real_booking_enabled %}<strong class="warning">真实预约</strong>{% else %}仅扫描{% endif %}</p>
-    <div class="actions">
-      {% if task.status == 'scheduled' %}{% if task.start_mode != 'immediate' %}<a class="button secondary" href="/tasks/{{ task.id }}/edit">编辑</a>{% endif %}
-      <form method="post" action="/tasks/{{ task.id }}/cancel"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary" type="submit">取消启动</button></form>{% endif %}
-      {% if task.status == 'running' and not task.stop_requested_at %}<form method="post" action="/tasks/{{ task.id }}/stop" data-confirm-stop><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger" type="submit">请求停止</button></form>{% endif %}
+{% set status_labels = {'scheduled': '等待启动', 'running': '运行中', 'success': '预约成功', 'no_result': '未找到场地', 'token_invalid': '登录失效', 'account_blocked': '账号受限', 'daily_limit': '预约已达上限', 'submission_unknown': '结果待核对', 'network_unavailable': '网络不可用', 'stopped': '已停止', 'error': '运行出错', 'cancelled': '已取消'} %}
+{% set status_messages = {'scheduled': '任务已创建，等待开始。', 'running': '正在查询并尝试预约；可在右侧查看进度。', 'success': '预约已成功，请以学校系统中的最终记录为准。', 'no_result': '本次未找到符合条件的可预约场地。', 'token_invalid': 'JLU Token 已失效，请在个人中心更新。', 'account_blocked': '学校账号暂时无法预约，请在学校系统核对。', 'daily_limit': '学校系统提示预约已达上限，本任务已结束。', 'submission_unknown': '提交结果尚无法确认，请到学校系统核对。', 'network_unavailable': '网络暂不可用，本任务已结束。', 'stopped': '任务已停止。若此前已提交，请到学校系统核对。', 'error': '任务运行出错，请查看右侧日志。', 'cancelled': '任务已取消。'} %}
+<header class="task-view-head"><div><p class="eyebrow">预约任务 #{{ task.id }}</p><h1>任务详情</h1></div><a class="task-back" href="/tasks/new" data-go-back><svg class="ui-icon" aria-hidden="true"><use href="#icon-back"/></svg>返回</a></header>
+<div class="task-view-grid" data-task-status-url="/tasks/{{ task.id }}/status" data-poll-ms="3000">
+  <section class="task-overview-card" aria-labelledby="task-overview-heading">
+    <div class="task-card-heading"><span class="task-card-icon"><svg class="ui-icon" aria-hidden="true"><use href="#icon-file"/></svg></span><div><h2 id="task-overview-heading">任务概览</h2><p>预约任务的基本信息与当前状态</p></div></div>
+    <div class="task-status-banner status-{{ task.status }}" data-task-status-banner><span class="task-status-symbol"><svg class="ui-icon" aria-hidden="true"><use data-task-status-icon href="{{ '#icon-check' if task.status == 'success' else '#icon-alert' if task.status in ['error', 'submission_unknown', 'token_invalid', 'account_blocked'] else '#icon-clock' }}"/></svg></span><div><strong data-task-status>{{ status_labels.get(task.status, task.status) }}</strong><p data-task-message>{{ status_messages.get(task.status, '请查看任务状态与运行日志。') }}</p></div></div>
+    <dl class="task-facts">
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-activity"/></svg>运行阶段</dt><dd data-task-phase>{{ phase or ('等待开始' if task.status == 'scheduled' else '暂无阶段信息') }}</dd></div>
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-calendar"/></svg>目标日</dt><dd>{{ target_date }}</dd></div>
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-building"/></svg>场馆</dt><dd>{{ task.venue }}</dd></div>
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"/></svg>项目</dt><dd>{{ task.sport }}</dd></div>
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-court"/></svg>首选场地</dt><dd>{{ task.preferred_court_number }} 号场</dd></div>
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-layers"/></svg>预约模式</dt><dd>{{ '真实预约' if task.real_booking_enabled else '仅扫描' }}</dd></div>
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-users"/></svg>同行人</dt><dd>{{ masked_companion or '已验证' }}</dd></div>
+      <div><dt><svg class="ui-icon" aria-hidden="true"><use href="#icon-clock"/></svg>重点时间排序</dt><dd>{% for slot in task.time_priority %}{{ slot[0] }}–{{ slot[1] }}{% if not loop.last %} › {% endif %}{% else %}按场地可预约时段{% endfor %}</dd></div>
+    </dl>
+    <div class="task-view-actions"><button type="button" data-refresh-task><svg class="ui-icon" aria-hidden="true"><use href="#icon-refresh"/></svg>刷新状态</button>
+      {% if task.status == 'running' and not task.stop_requested_at %}<form method="post" action="/tasks/{{ task.id }}/stop" data-confirm-stop data-task-active-action><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="task-stop"><svg class="ui-icon" aria-hidden="true"><use href="#icon-alert"/></svg>停止任务</button></form>{% endif %}
+      {% if task.status == 'scheduled' %}<form method="post" action="/tasks/{{ task.id }}/cancel" data-task-active-action><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="task-stop">取消任务</button></form>{% endif %}
+      <details class="task-config"><summary><svg class="ui-icon" aria-hidden="true"><use href="#icon-settings"/></svg>查看配置</summary><p>启动方式：{{ '立即开始' if task.start_mode == 'immediate' else '执行日 ' ~ task.execution_date }}</p><p>目标日期：{{ target_date }}</p><p>预约模式：{{ '真实预约' if task.real_booking_enabled else '仅扫描' }}</p>{% if task.status == 'scheduled' and task.start_mode != 'immediate' %}<a href="/tasks/{{ task.id }}/edit">编辑配置</a>{% endif %}</details>
     </div>
-    {% if task.status == 'running' %}<p class="warning">停止任务不代表预约一定未提交；若请求已经发出，请到学校系统核对最终结果。</p>{% endif %}
-    {% if task.status == 'submission_unknown' %}<p class="warning">最终提交的结果无法确认，请先到学校系统核对；系统不会为该目标日再次自动提交。</p>{% endif %}
+    {% if task.status in ['running', 'submission_unknown', 'stopped'] %}<p class="task-caution">停止任务不代表预约一定未提交；请到学校系统核对最终结果。</p>{% endif %}
   </section>
-  <section class="card workspace-info-card">
-    <h2>运行日志</h2>
-    <pre class="log-region" data-log-region aria-live="polite">{{ log_initial_text }}</pre>
+  <section class="task-log-card" aria-labelledby="task-log-heading"><div class="task-card-heading"><span class="task-card-icon"><svg class="ui-icon" aria-hidden="true"><use href="#icon-file"/></svg></span><div><h2 id="task-log-heading">运行日志</h2><p>任务运行过程中的详细信息</p></div><button type="button" class="task-log-expand" data-log-expand aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#icon-expand"/></svg><span data-expand-label>全屏查看</span></button></div>
+    <div class="task-log-view" data-log-view><ol class="task-log-lines" data-log-lines aria-live="polite">{% if log_lines %}{% for line in log_lines %}<li>{{ line }}</li>{% endfor %}{% else %}<li>{{ '日志暂不可用' if task.status in ['success', 'no_result', 'token_invalid', 'account_blocked', 'daily_limit', 'submission_unknown', 'network_unavailable', 'stopped', 'error', 'cancelled'] else '等待日志…' }}</li>{% endif %}</ol></div>
   </section>
 </div>
 {% endblock %}

@@ -16,7 +16,8 @@ window.JLUBooking = Object.freeze({
 });
 
 const terminalStates = new Set(["success", "no_result", "token_invalid", "account_blocked", "daily_limit", "submission_unknown", "network_unavailable", "stopped", "error", "cancelled"]);
-const taskStatusLabels = Object.freeze({scheduled: "即将启动", running: "运行中", success: "预约成功", no_result: "未找到场地", token_invalid: "登录失效", account_blocked: "账号受限", daily_limit: "预约已达上限", submission_unknown: "结果待核对", network_unavailable: "网络不可用", stopped: "已停止", error: "运行出错", cancelled: "已取消"});
+const taskStatusLabels = Object.freeze({scheduled: "等待启动", running: "运行中", success: "预约成功", no_result: "未找到场地", token_invalid: "登录失效", account_blocked: "账号受限", daily_limit: "预约已达上限", submission_unknown: "结果待核对", network_unavailable: "网络不可用", stopped: "已停止", error: "运行出错", cancelled: "已取消"});
+const taskStatusMessages = Object.freeze({scheduled: "任务已创建，等待开始。", running: "正在查询并尝试预约；可在右侧查看进度。", success: "预约已成功，请以学校系统中的最终记录为准。", no_result: "本次未找到符合条件的可预约场地。", token_invalid: "JLU Token 已失效，请在个人中心更新。", account_blocked: "学校账号暂时无法预约，请在学校系统核对。", daily_limit: "学校系统提示预约已达上限，本任务已结束。", submission_unknown: "提交结果尚无法确认，请到学校系统核对。", network_unavailable: "网络暂不可用，本任务已结束。", stopped: "任务已停止。若此前已提交，请到学校系统核对。", error: "任务运行出错，请查看右侧日志。", cancelled: "任务已取消。"});
 const taskRoot = document.querySelector("[data-task-status-url]");
 let taskTimer = null;
 async function refreshTask() {
@@ -26,21 +27,51 @@ async function refreshTask() {
   const payload = await response.json();
   window.JLUBooking.setText(document.querySelector("[data-task-status]"), taskStatusLabels[payload.status] || payload.status);
   window.JLUBooking.setText(document.querySelector("[data-task-phase]"), payload.phase || "尚未开始");
-  window.JLUBooking.setText(document.querySelector("[data-log-region]"),
-    payload.log_lines.length ? payload.log_lines.join("\n") :
-      (terminalStates.has(payload.status) ? "日志暂不可用" : "等待日志…"));
+  window.JLUBooking.setText(document.querySelector("[data-task-message]"), taskStatusMessages[payload.status] || "请查看任务状态与运行日志。");
+  const banner = document.querySelector("[data-task-status-banner]");
+  if (banner) banner.className = `task-status-banner status-${payload.status}`;
+  const statusIcon = document.querySelector("[data-task-status-icon]");
+  if (statusIcon) statusIcon.setAttribute("href", payload.status === "success" ? "#icon-check" :
+    ["error", "submission_unknown", "token_invalid", "account_blocked"].includes(payload.status) ? "#icon-alert" : "#icon-clock");
+  const lines = Array.isArray(payload.log_lines) && payload.log_lines.length ? payload.log_lines :
+    [terminalStates.has(payload.status) ? "日志暂不可用" : "等待日志…"];
+  const logList = document.querySelector("[data-log-lines]");
+  if (logList && logList.dataset.current !== JSON.stringify(lines)) {
+    logList.replaceChildren(...lines.map((line) => { const item = document.createElement("li"); item.textContent = line; return item; }));
+    logList.dataset.current = JSON.stringify(lines);
+  }
+  window.JLUBooking.setText(document.querySelector("[data-log-region]"), lines.join("\n"));
+  if (terminalStates.has(payload.status)) for (const action of document.querySelectorAll("[data-task-active-action]")) action.hidden = true;
   if (terminalStates.has(payload.status) && taskTimer) { clearInterval(taskTimer); taskTimer = null; }
 }
 function configurePolling() {
   if (!taskRoot || document.visibilityState !== "visible" || taskTimer) return;
-  refreshTask();
-  taskTimer = setInterval(refreshTask, Number(taskRoot.dataset.pollMs || 3000));
+  refreshTask().catch(() => {});
+  taskTimer = setInterval(() => { refreshTask().catch(() => {}); }, Number(taskRoot.dataset.pollMs || 3000));
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden" && taskTimer) { clearInterval(taskTimer); taskTimer = null; }
   else configurePolling();
 });
 configurePolling();
+document.querySelector("[data-refresh-task]")?.addEventListener("click", () => { refreshTask().catch(() => {}); });
+const logExpand = document.querySelector("[data-log-expand]");
+const logView = document.querySelector("[data-log-view]");
+function setLogExpanded(expanded) {
+  if (!logExpand || !logView) return;
+  logView.closest(".task-log-card")?.classList.toggle("is-expanded", expanded);
+  logExpand.setAttribute("aria-expanded", String(expanded));
+  const label = logExpand.querySelector("[data-expand-label]");
+  if (label) label.textContent = expanded ? "退出全屏" : "全屏查看";
+}
+logExpand?.addEventListener("click", () => setLogExpanded(logExpand.getAttribute("aria-expanded") !== "true"));
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") setLogExpanded(false); });
+document.querySelector("[data-go-back]")?.addEventListener("click", (event) => {
+  if (document.referrer && new URL(document.referrer).origin === window.location.origin) {
+    event.preventDefault();
+    window.history.back();
+  }
+});
 
 for (const form of document.querySelectorAll("[data-confirm-stop]")) {
   form.addEventListener("submit", (event) => {

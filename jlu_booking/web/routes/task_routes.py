@@ -15,7 +15,7 @@ from ...run_status import RunStatusError, load_run_status
 from ..credentials import CredentialError
 from ..dependencies import now_beijing, require_csrf
 from ..profile_helpers import require_active_user
-from ..security import RateLimitExceeded
+from ..security import RateLimitExceeded, mask_secret
 from ..tasks import TaskDraft, TaskError, TaskFrozen, TaskNotFound
 
 
@@ -160,6 +160,12 @@ async def task_detail(request: Request, task_id: int):
     task = _task_or_404(request, user.id, task_id)
     terminal = task.status not in {"scheduled", "running"}
     log_lines = read_private_log_lines(request, task.id, user.id) if terminal else []
+    try:
+        masked_companion = mask_secret(
+            request.app.state.services.credentials.decrypt_companion(user.id).student_number
+        )
+    except CredentialError:
+        masked_companion = "已移除"
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="task_detail.html",
@@ -168,6 +174,9 @@ async def task_detail(request: Request, task_id: int):
             "user": user,
             "task": task,
             "target_date": request.app.state.services.tasks.target_date(task.execution_date, task.target_day),
+            "masked_companion": masked_companion,
+            "phase": read_private_phase(request, task.id),
+            "log_lines": log_lines,
             "log_initial_text": "\n".join(log_lines) if log_lines else ("日志暂不可用" if terminal else "等待日志…"),
         },
     )

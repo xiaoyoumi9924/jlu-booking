@@ -13,20 +13,20 @@
     <nav aria-label="用户导航">
       <div class="workspace-nav-section"><span>功能导航</span><span>4 项</span></div>
       <a class="workspace-nav-card{% if active_path == '/' or active_path == '/availability/query' %} is-active{% endif %}" href="/" {% if active_path == '/' or active_path == '/availability/query' %}aria-current="page"{% endif %}>
-        <span class="workspace-nav-icon">查</span><span><strong>场地查询</strong><small>查看空闲场地与时段</small></span>
+        <span class="workspace-nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg></span><span><strong>场地查询</strong><small>查看空闲场地与时段</small></span>
       </a>
       <a class="workspace-nav-card{% if active_path.startswith('/tasks') %} is-active{% endif %}" href="/tasks/new" {% if active_path.startswith('/tasks') %}aria-current="page"{% endif %}>
-        <span class="workspace-nav-icon">启</span><span><strong>启动预约</strong><small>立即开始预约</small></span>
+        <span class="workspace-nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="#icon-calendar"/></svg></span><span><strong>启动预约</strong><small>立即开始预约</small></span>
       </a>
       <a class="workspace-nav-card{% if active_path.startswith('/daily-plan') %} is-active{% endif %}" href="/daily-plan" {% if active_path.startswith('/daily-plan') %}aria-current="page"{% endif %}>
-        <span class="workspace-nav-icon">日</span><span><strong>自动预约</strong><small>设置每日执行与开关</small></span>
+        <span class="workspace-nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="#icon-file"/></svg></span><span><strong>自动预约</strong><small>设置每日执行与开关</small></span>
       </a>
       <a class="workspace-nav-card{% if active_path.startswith('/profile') or active_path == '/change-password' %} is-active{% endif %}" href="/profile" {% if active_path.startswith('/profile') or active_path == '/change-password' %}aria-current="page"{% endif %}>
-        <span class="workspace-nav-icon">我</span><span><strong>个人中心</strong><small>凭据与预约记录</small></span>
+        <span class="workspace-nav-icon"><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"/></svg></span><span><strong>个人中心</strong><small>凭据与预约记录</small></span>
       </a>
     </nav>
     <div class="workspace-nav-footer">
-      <div class="workspace-account"><span>{{ user.username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">退出登录</button></form></div>
+      <div class="workspace-account"><span class="workspace-account-name"><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"/></svg>{{ user.username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"/></svg>退出登录</button></form></div>
       <div class="workspace-motto"><strong>求实创新 · 励志图强</strong><span>场地数据以学校系统为准</span></div>
     </div>
   </div>

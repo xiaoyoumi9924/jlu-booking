@@ -40,14 +40,38 @@ def _audit(request, admin, action, target=None, metadata=None):
 async def dashboard(request: Request):
     session, admin = _admin(request)
     connection = request.app.state.services.connection
+    today = now_beijing().date().isoformat()
+    def count(query: str, params: tuple = ()) -> int:
+        return int(connection.execute(query, params).fetchone()[0])
+
     counts = {
-        "active": connection.execute("SELECT COUNT(*) FROM users WHERE role='user' AND status='active'").fetchone()[0],
-        "pending": connection.execute("SELECT COUNT(*) FROM users WHERE role='user' AND status='pending_token'").fetchone()[0],
-        "running": connection.execute("SELECT COUNT(*) FROM booking_tasks WHERE status='running'").fetchone()[0],
+        "users": count("SELECT COUNT(*) FROM users WHERE role='user' AND status!='deleted'"),
+        "active": count("SELECT COUNT(*) FROM users WHERE role='user' AND status='active'"),
+        "pending": count("SELECT COUNT(*) FROM users WHERE role='user' AND status='pending_token'"),
+        "bound": count("SELECT COUNT(*) FROM user_credentials c JOIN users u ON u.id=c.user_id WHERE u.role='user' AND u.status!='deleted'"),
+        "running": count("SELECT COUNT(*) FROM booking_tasks WHERE status='running'"),
+        "scheduled": count("SELECT COUNT(*) FROM booking_tasks WHERE status='scheduled'"),
+        "today_success": count("SELECT COUNT(*) FROM booking_tasks WHERE target_day='today' AND execution_date=? AND status='success'", (today,))
+        + count("SELECT COUNT(*) FROM booking_tasks WHERE target_day='tomorrow' AND date(execution_date, '+1 day')=? AND status='success'", (today,))
+        + count("SELECT COUNT(*) FROM manual_booking_attempts a JOIN manual_candidates c ON c.id=a.candidate_id WHERE c.query_date=? AND a.status='success'", (today,)),
+        "attention": count("SELECT COUNT(*) FROM booking_tasks WHERE status IN ('submission_unknown', 'token_invalid', 'account_blocked', 'error') AND substr(updated_at, 1, 10)=?", (today,)),
     }
+    attention_items = connection.execute(
+        "SELECT t.id, t.status, t.updated_at, u.username FROM booking_tasks t "
+        "JOIN users u ON u.id=t.user_id WHERE t.status IN "
+        "('submission_unknown', 'token_invalid', 'account_blocked', 'error') "
+        "AND substr(t.updated_at, 1, 10)=? ORDER BY t.updated_at DESC LIMIT 3", (today,)
+    ).fetchall()
+    recent_tasks = connection.execute(
+        "SELECT t.id, t.venue, t.sport, t.execution_date, t.target_day, "
+        "t.status, t.updated_at, u.username FROM booking_tasks t "
+        "JOIN users u ON u.id=t.user_id ORDER BY t.created_at DESC, t.id DESC LIMIT 5"
+    ).fetchall()
     return request.app.state.templates.TemplateResponse(
         request=request, name="admin/dashboard.html",
-        context={"admin": admin, "csrf_token": session.csrf_token, "counts": counts},
+        context={"admin": admin, "csrf_token": session.csrf_token,
+                 "counts": counts, "attention_items": attention_items,
+                 "recent_tasks": recent_tasks},
     )
 
 

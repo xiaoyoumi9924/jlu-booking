@@ -7,7 +7,7 @@ import subprocess
 import pytest
 
 
-@pytest.mark.parametrize("script_name", ["frontend_interactions.js", "admin_frontend_interactions.js"])
+@pytest.mark.parametrize("script_name", ["frontend_interactions.js", "admin_frontend_interactions.js", "task_detail_interactions.js"])
 def test_frontend_interactions_without_school_api(script_name):
     node = shutil.which("node")
     if node is None:
