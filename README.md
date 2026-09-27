@@ -97,6 +97,7 @@ Linux：运行 `JLU Booking`
 - [安全说明](SECURITY.md)
 
 ## 网站（测试版）
+该网站能提供每日预约等服务，目前限额10人。
 
 [https://booking.meiyh9924.xyz](https://booking.meiyh9924.xyz)
 
