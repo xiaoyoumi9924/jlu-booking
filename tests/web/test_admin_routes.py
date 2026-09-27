@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -101,7 +101,7 @@ def _admin_login(client, services):
     return admin
 
 
-@pytest.mark.parametrize("path", ["/admin", "/admin/users", "/admin/tasks", "/admin/audit", "/admin/logs", "/admin/exceptions", "/admin/stats", "/admin/monitor", "/admin/settings"])
+@pytest.mark.parametrize("path", ["/admin", "/admin/users", "/admin/tasks", "/admin/audit", "/admin/exceptions", "/admin/stats"])
 def test_ordinary_user_cannot_open_admin_pages_or_infer_ids(web, path):
     client, services = web
     _create_active(services)
@@ -134,11 +134,8 @@ def test_admin_new_views_are_source_backed_and_invitation_removed(web):
     )
     _admin_login(client, services)
     for path, marker in (
-        ("/admin/logs", "暂无运行日志"),
         ("/admin/exceptions", "运行出错"),
-        ("/admin/stats", "近七天创建任务"),
-        ("/admin/monitor", "当前任务"),
-        ("/admin/settings", "容量配置"),
+        ("/admin/stats", "近7天任务创建趋势"),
         (f"/admin/users/{user.id}", "预约必备信息"),
     ):
         page = client.get(path)
@@ -153,9 +150,16 @@ def test_admin_new_views_are_source_backed_and_invitation_removed(web):
     assert "邀请管理" not in filtered.text
     assert "没有符合条件的任务" in client.get("/admin/tasks?status=success").text
     assert "没有符合条件的用户" in client.get("/admin/users?q=does-not-exist").text
+    for path in ("/admin/logs", "/admin/monitor", "/admin/settings", "/admin/reauth"):
+        assert client.get(path).status_code == 404
+    sidebar = client.get("/admin").text
+    for label in ("运行日志", "运行监控", "系统设置", "用户与任务", "数据", "系统"):
+        assert f"<strong>{label}</strong>" not in sidebar
+        assert f'class="admin-nav-label">{label}' not in sidebar
+    assert sidebar.index("审计记录") < sidebar.index("求实创新 · 励志图强")
 
 
-def test_token_reveal_requires_recent_admin_password(web):
+def test_token_reveal_requires_admin_password(web):
     client, services = web
     active = _create_active(services)
     _admin_login(client, services)
@@ -165,23 +169,40 @@ def test_token_reveal_requires_recent_admin_password(web):
         data={"csrf_token": _csrf(page)},
     )
     assert response.status_code == 403
+    wrong = client.post(
+        f"/admin/users/{active.id}/token/reveal",
+        data={"csrf_token": _csrf(page), "password": "wrong password"},
+    )
+    assert wrong.status_code == 403
+    assert "private-token" not in wrong.text
+
+
+def test_token_reveal_password_attempts_are_rate_limited(web):
+    client, services = web
+    active = _create_active(services)
+    _admin_login(client, services)
+    csrf = _csrf(client.get("/admin/users"))
+    url = f"/admin/users/{active.id}/token/reveal"
+    for _ in range(5):
+        assert client.post(url, data={
+            "csrf_token": csrf, "password": "wrong password",
+        }).status_code == 403
+    blocked = client.post(url, data={
+        "csrf_token": csrf, "password": "owner password value",
+    })
+    assert blocked.status_code == 429
+    assert int(blocked.headers["retry-after"]) > 0
+    assert "private-token" not in blocked.text
 
 
 def test_revealed_token_is_temporary_no_store_and_audited(web):
     client, services = web
     active = _create_active(services)
     _admin_login(client, services)
-    page = client.get("/admin/reauth")
-    granted = client.post(
-        "/admin/reauth",
-        data={"password": "owner password value", "csrf_token": _csrf(page)},
-        follow_redirects=False,
-    )
-    assert granted.status_code == 303
     users = client.get("/admin/users")
     response = client.post(
         f"/admin/users/{active.id}/token/reveal",
-        data={"csrf_token": _csrf(users)},
+        data={"csrf_token": _csrf(users), "password": "owner password value"},
     )
     assert response.json() == {"token": "private-token", "hide_after": 30}
     assert response.headers["cache-control"].startswith("no-store")
@@ -192,23 +213,61 @@ def test_revealed_token_is_temporary_no_store_and_audited(web):
     assert "private-token" not in event["metadata_json"]
 
 
-def test_reauthentication_expires_after_five_minutes(web, monkeypatch):
+def test_token_reveal_requires_password_on_every_request(web):
     client, services = web
     active = _create_active(services)
     _admin_login(client, services)
-    page = client.get("/admin/reauth")
-    client.post(
-        "/admin/reauth",
-        data={"password": "owner password value", "csrf_token": _csrf(page)},
-    )
-    later = NOW + timedelta(minutes=5, microseconds=1)
-    monkeypatch.setattr("jlu_booking.web.routes.admin.now_beijing", lambda: later)
     users = client.get("/admin/users")
+    url = f"/admin/users/{active.id}/token/reveal"
+    assert client.post(
+        url, data={"csrf_token": _csrf(users), "password": "owner password value"},
+    ).status_code == 200
     response = client.post(
-        f"/admin/users/{active.id}/token/reveal",
+        url,
         data={"csrf_token": _csrf(users)},
     )
     assert response.status_code == 403
+
+
+def test_statistics_filter_date_sport_and_user(web):
+    client, services = web
+    alice = _create_active(services)
+    bob = _create_active(services, "bob", "bob-private-token")
+    for owner, sport, status, created_at in (
+        (alice, "羽毛球", "error", "2026-09-22T10:00:00+08:00"),
+        (alice, "羽毛球", "success", "2026-09-21T10:00:00+08:00"),
+        (bob, "乒乓球", "success", "2026-09-22T11:00:00+08:00"),
+    ):
+        companion = services.credentials.decrypt_companion(owner.id)
+        task = services.tasks.create(owner.id, TaskDraft(
+            "today", "前卫体育馆", sport, companion.id, 3,
+            [["15:30", "17:30"]], False,
+        ), now=NOW)
+        services.connection.execute(
+            "UPDATE booking_tasks SET status=?, created_at=? WHERE id=?",
+            (status, created_at, task.id),
+        )
+    _admin_login(client, services)
+    page = client.get(
+        f"/admin/stats?start=2026-09-21&end=2026-09-22&sport=羽毛球&user_id={alice.id}"
+    )
+    assert page.status_code == 200
+    assert 'data-stat="total">2<' in page.text
+    assert 'data-stat="success">1<' in page.text
+    assert 'data-stat="users">1<' in page.text
+    assert 'data-stat="success-rate">50%<' in page.text
+    assert 'data-active-user="alice"' in page.text
+    assert 'data-active-user="bob"' not in page.text
+    assert 'value="2026-09-21"' in page.text
+    assert 'value="2026-09-22"' in page.text
+
+
+def test_statistics_handles_earliest_date_without_server_error(web):
+    client, services = web
+    _admin_login(client, services)
+    page = client.get("/admin/stats?end=0001-01-01")
+    assert page.status_code == 200
+    assert 'name="start" type="date" value="0001-01-01"' in page.text
 
 
 def test_admin_disable_enable_reset_and_pending_delete_are_audited(web):
@@ -293,7 +352,7 @@ def test_password_reset_endpoint_refuses_admin_target(web):
     before = services.connection.execute(
         "SELECT password_hash FROM users WHERE id=?", (second.id,)
     ).fetchone()[0]
-    page = client.get("/admin/reauth")
+    page = client.get("/admin/users")
     response = client.post(
         f"/admin/users/{second.id}/reset-password",
         data={"csrf_token": _csrf(page)},

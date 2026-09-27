@@ -85,19 +85,55 @@ function clearRevealedTokens() {
   for (const output of revealedOutputs) output.textContent = "";
   revealedOutputs.clear();
 }
+const tokenDialog = document.querySelector("[data-token-dialog]");
+const tokenForm = tokenDialog?.querySelector("[data-token-form]");
+let selectedTokenButton = null;
 for (const button of document.querySelectorAll("[data-token-reveal]")) {
-  button.addEventListener("click", async () => {
-    const body = new URLSearchParams({csrf_token: button.dataset.csrf});
-    const response = await fetch(button.dataset.tokenReveal, {method: "POST", body});
-    if (!response.ok) return;
+  button.addEventListener("click", () => {
+    if (!tokenDialog) return;
+    clearRevealedTokens();
+    selectedTokenButton = button;
+    tokenForm.reset();
+    const error = tokenDialog.querySelector("[data-token-error]");
+    error.hidden = true;
+    window.JLUBooking.setText(tokenDialog.querySelector("[data-token-username]"), button.dataset.tokenUser);
+    tokenDialog.showModal();
+    tokenForm.elements.password.focus();
+  });
+}
+tokenDialog?.querySelector("[data-token-cancel]")?.addEventListener("click", () => tokenDialog.close());
+tokenDialog?.addEventListener("close", () => { tokenForm.reset(); selectedTokenButton = null; });
+tokenForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!selectedTokenButton) return;
+  const button = selectedTokenButton;
+  const submit = tokenForm.querySelector('[type="submit"]');
+  const error = tokenDialog.querySelector("[data-token-error]");
+  const body = new URLSearchParams({csrf_token: button.dataset.csrf, password: tokenForm.elements.password.value});
+  submit.disabled = true;
+  error.hidden = true;
+  try {
+    const response = await fetch(button.dataset.tokenReveal, {method: "POST", body, cache: "no-store"});
     const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "验证失败，请重试。");
+    if (!tokenDialog.open || selectedTokenButton !== button) return;
     const userId = button.dataset.tokenReveal.split("/").at(-3);
     const output = document.querySelector(`[data-token-output="${userId}"]`);
     window.JLUBooking.setText(output, payload.token);
-    revealedOutputs.add(output);
-    setTimeout(() => { if (output) output.textContent = ""; revealedOutputs.delete(output); }, Number(payload.hide_after) * 1000);
-  });
-}
+    if (output) {
+      revealedOutputs.add(output);
+      setTimeout(() => { output.textContent = ""; revealedOutputs.delete(output); }, Number(payload.hide_after) * 1000);
+    }
+    tokenDialog.close();
+  } catch (failure) {
+    if (!tokenDialog.open || selectedTokenButton !== button) return;
+    window.JLUBooking.setText(error, failure.message || "暂时无法查看 Token。");
+    error.hidden = false;
+  } finally {
+    if (selectedTokenButton === button) tokenForm.elements.password.value = "";
+    submit.disabled = false;
+  }
+});
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") clearRevealedTokens(); });
 window.addEventListener("pagehide", clearRevealedTokens);
 

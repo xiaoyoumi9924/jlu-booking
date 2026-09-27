@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import secrets
 from datetime import date, timedelta
-from platform import python_version
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -12,7 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from ..accounts import AccountError
 from ..db import TASK_STATUSES, transaction
 from ..dependencies import client_ip, current_user, now_beijing, require_csrf
-from ..security import mask_secret
+from ..security import RateLimitExceeded, mask_secret
 from ..tasks import TaskError
 from .task_routes import _redact_line, read_private_log_lines, read_private_phase
 
@@ -40,6 +39,10 @@ def _date_filter(request: Request, name: str) -> str:
         return date.fromisoformat(value).isoformat()
     except ValueError:
         return ""
+
+
+def _days_before(value: date, count: int) -> date:
+    return date.fromordinal(max(1, value.toordinal() - count))
 
 
 def _render(request: Request, session, admin, template: str, **context):
@@ -289,58 +292,34 @@ async def reset_password(request: Request, user_id: int, csrf_token: str = Form(
     return response
 
 
-@router.get("/reauth")
-async def reauth_page(request: Request):
-    session, admin = _admin(request)
-    return request.app.state.templates.TemplateResponse(
-        request=request, name="admin/reauth.html",
-        context={"admin": admin, "csrf_token": session.csrf_token, "error": None},
-    )
-
-
-@router.post("/reauth")
-async def reauth(
-    request: Request,
-    password: str = Form(...),
-    csrf_token: str = Form(""),
+@router.post("/users/{user_id}/token/reveal")
+async def reveal_token(
+    request: Request, user_id: int,
+    password: str = Form(""), csrf_token: str = Form(""),
 ):
     session, admin = _admin(request)
     require_csrf(request, csrf_token, session)
+    now = now_beijing()
+    if not password:
+        raise HTTPException(403, "请输入管理员密码。")
     try:
         await request.app.state.services.reauth.grant_async(
-            admin.id,
-            session.id,
-            password,
-            now=now_beijing(),
+            admin.id, session.id, password, now=now,
             on_success=lambda: _audit(
-                request,
-                admin,
-                "admin_reauthenticated",
+                request, admin, "admin_reauthenticated",
                 metadata={"outcome": "success"},
             ),
         )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
     except (PermissionError, AccountError) as exc:
         _audit(
-            request,
-            admin,
-            "admin_reauthentication_failed",
+            request, admin, "admin_reauthentication_failed",
             metadata={"outcome": "failure", "reason": type(exc).__name__},
         )
-        return request.app.state.templates.TemplateResponse(
-            request=request, name="admin/reauth.html",
-            context={"admin": admin, "csrf_token": session.csrf_token, "error": str(exc)},
-            status_code=403,
-        )
-    return RedirectResponse("/admin/users", 303)
-
-
-@router.post("/users/{user_id}/token/reveal")
-async def reveal_token(request: Request, user_id: int, csrf_token: str = Form("")):
-    session, admin = _admin(request)
-    require_csrf(request, csrf_token, session)
-    now = now_beijing()
-    if not request.app.state.services.reauth.is_valid(admin.id, now, session.id):
-        raise HTTPException(403, "请先重新验证管理员密码。")
+        raise HTTPException(403, str(exc)) from exc
     try:
         token = request.app.state.services.credentials.reveal_token(
             admin.id, user_id, source_ip=client_ip(request), now=now
@@ -478,28 +457,6 @@ async def audit(request: Request):
                    action=action, actions=sorted(allowed), page=page, total=total)
 
 
-@router.get("/logs")
-async def logs(request: Request):
-    session, admin = _admin(request)
-    connection = request.app.state.services.connection
-    query = request.query_params.get("q", "").strip()[:60]
-    status = _filter_value(request, "status", set(TASK_STATUSES))
-    day = _date_filter(request, "day")
-    page = _page(request)
-    where = ("FROM task_runs r JOIN booking_tasks t ON t.id=r.task_id "
-             "JOIN users u ON u.id=t.user_id WHERE (?='' OR u.username LIKE ?) "
-             "AND (?='' OR t.status=?) AND (?='' OR substr(r.started_at,1,10)=?)")
-    params = (query, f"%{query}%", status, status, day, day)
-    total = connection.execute("SELECT COUNT(*) " + where, params).fetchone()[0]
-    rows = connection.execute(
-        "SELECT r.task_id, r.started_at, r.finished_at, r.final_status, "
-        "t.status, t.venue, t.sport, u.username " + where +
-        " ORDER BY r.started_at DESC LIMIT 30 OFFSET ?", (*params, (page-1)*30),
-    ).fetchall()
-    return _render(request, session, admin, "admin/logs.html", runs=rows,
-                   query=query, status=status, day=day, page=page, total=total)
-
-
 @router.get("/exceptions")
 async def exceptions(request: Request):
     session, admin = _admin(request)
@@ -534,48 +491,66 @@ async def stats(request: Request):
     session, admin = _admin(request)
     connection = request.app.state.services.connection
     today = now_beijing().date()
-    days = [(today - timedelta(days=offset)).isoformat() for offset in range(6, -1, -1)]
-    daily = {day: {"total": 0, "success": 0} for day in days}
+    try:
+        end = date.fromisoformat(request.query_params.get("end", ""))
+    except ValueError:
+        end = today
+    try:
+        start = date.fromisoformat(request.query_params.get("start", ""))
+    except ValueError:
+        start = _days_before(end, 6)
+    if start > end:
+        start = _days_before(end, 6)
+    if (end - start).days > 30:
+        start = _days_before(end, 30)
+    sport_options = [row[0] for row in connection.execute(
+        "SELECT DISTINCT sport FROM booking_tasks ORDER BY sport"
+    )]
+    sport = request.query_params.get("sport", "")
+    if sport not in sport_options:
+        sport = ""
+    user_options = connection.execute(
+        "SELECT id, username FROM users WHERE role='user' AND status!='deleted' ORDER BY username"
+    ).fetchall()
+    try:
+        user_id = int(request.query_params.get("user_id", "0"))
+    except ValueError:
+        user_id = 0
+    if user_id not in {row["id"] for row in user_options}:
+        user_id = 0
+    where = (
+        "FROM booking_tasks t JOIN users u ON u.id=t.user_id "
+        "WHERE substr(t.created_at,1,10) BETWEEN ? AND ? "
+        "AND (?='' OR t.sport=?) AND (?=0 OR t.user_id=?)"
+    )
+    params = (start.isoformat(), end.isoformat(), sport, sport, user_id, user_id)
+    days = [(start + timedelta(days=offset)).isoformat()
+            for offset in range((end - start).days + 1)]
+    daily = {day: 0 for day in days}
     for row in connection.execute(
-        "SELECT substr(created_at,1,10) day, status, COUNT(*) n FROM booking_tasks "
-        "WHERE substr(created_at,1,10)>=? GROUP BY day,status", (days[0],)
+        "SELECT substr(t.created_at,1,10) day, COUNT(*) n " + where +
+        " GROUP BY day", params,
     ):
         if row["day"] in daily:
-            daily[row["day"]]["total"] += row["n"]
-            if row["status"] == "success":
-                daily[row["day"]]["success"] += row["n"]
-    sports = connection.execute("SELECT sport, COUNT(*) total, SUM(status='success') success FROM booking_tasks GROUP BY sport ORDER BY total DESC").fetchall()
-    totals = connection.execute("SELECT COUNT(*) total, SUM(status='success') success, COUNT(DISTINCT user_id) users FROM booking_tasks").fetchone()
-    return _render(request, session, admin, "admin/stats.html", daily=daily,
-                   sports=sports, totals=totals, max_daily=max([1] + [v["total"] for v in daily.values()]))
-
-
-@router.get("/monitor")
-async def monitor(request: Request):
-    session, admin = _admin(request)
-    connection = request.app.state.services.connection
-    active = connection.execute(
-        "SELECT t.id,t.status,t.venue,t.sport,t.execution_date,t.updated_at,u.username "
-        "FROM booking_tasks t JOIN users u ON u.id=t.user_id "
-        "WHERE t.status IN ('running','scheduled') ORDER BY t.status,t.execution_date,t.id LIMIT 100"
+            daily[row["day"]] = row["n"]
+    sports = connection.execute(
+        "SELECT t.sport, COUNT(*) total " + where +
+        " GROUP BY t.sport ORDER BY total DESC, t.sport", params,
     ).fetchall()
-    recent = connection.execute(
-        "SELECT r.task_id,r.started_at,r.finished_at,r.final_status,u.username "
-        "FROM task_runs r JOIN booking_tasks t ON t.id=r.task_id "
-        "JOIN users u ON u.id=t.user_id ORDER BY r.started_at DESC LIMIT 8"
+    active_users = connection.execute(
+        "SELECT u.username, COUNT(*) total " + where +
+        " GROUP BY t.user_id ORDER BY total DESC, u.username LIMIT 10", params,
     ).fetchall()
-    return _render(request, session, admin, "admin/monitor.html", active=active, recent=recent)
-
-
-@router.get("/settings")
-async def settings(request: Request):
-    session, admin = _admin(request)
-    configured = request.app.state.settings
-    connection = request.app.state.services.connection
-    schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-    return _render(request, session, admin, "admin/settings.html", info={
-        "python": python_version(), "schema": schema_version,
-        "user_limit": configured.user_limit, "pending_limit": configured.pending_limit,
-        "daily_task_limit": configured.daily_task_limit,
-        "cookie_secure": configured.cookie_secure,
-    })
+    totals = connection.execute(
+        "SELECT COUNT(*) total, COALESCE(SUM(t.status='success'),0) success, "
+        "COUNT(DISTINCT t.user_id) users " + where, params,
+    ).fetchone()
+    return _render(
+        request, session, admin, "admin/stats.html", daily=daily,
+        sports=sports, active_users=active_users, totals=totals,
+        success_rate=round(totals["success"] / totals["total"] * 100)
+        if totals["total"] else 0,
+        max_daily=max([1, *daily.values()]), start=start.isoformat(),
+        end=end.isoformat(), sport=sport, user_id=user_id,
+        sport_options=sport_options, user_options=user_options,
+    )
