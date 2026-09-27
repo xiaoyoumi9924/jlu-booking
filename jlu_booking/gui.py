@@ -112,7 +112,7 @@ class ScrollableFrame(tk.Frame):
 
 
 class BookingApp:
-    SIDEBAR_WIDTH = 320
+    SIDEBAR_WIDTH = 264
     MAIN_WINDOW_WIDTH = 1400
     MAIN_WINDOW_HEIGHT = 900
 
@@ -181,14 +181,6 @@ class BookingApp:
                 "target_day": "今天",
             }
 
-        self.venue_options = tuple(
-            {
-                "key": venue_name,
-                "name": venue_name,
-                "sports": tuple(venue_info["sports"].keys()),
-            }
-            for venue_name, venue_info in VENUES.items()
-        )
         self.current_venue_name = startup_config["venue"]
         self.startup_config = startup_config
 
@@ -202,7 +194,8 @@ class BookingApp:
         self.content_host = None
         self.query_page = None
         self.auto_page = None
-        self.venue_section = None
+        self.profile_page = None
+        self.detail_page = None
         self.query_venue_badge_var = None
         self.venue_var = None
         self.sport_choices = None
@@ -246,7 +239,8 @@ class BookingApp:
         self.auto_validated_companion_name = None
         self.auto_court_var = None
         self.auto_court_spinbox = None
-        self.auto_time_text = None
+        self.auto_time_rows = []
+        self.auto_time_controls = []
         self.auto_real_booking_var = None
         self.auto_mode_buttons = {}
         self.auto_mode_note_var = None
@@ -258,6 +252,7 @@ class BookingApp:
         self.auto_output_lines = []
         self.auto_log_window = None
         self.auto_log_text = None
+        self.detail_log_text = None
         self.auto_log_mode = "live"
         self.auto_log_title_var = None
         self.auto_log_buttons = {}
@@ -448,7 +443,7 @@ class BookingApp:
             (
                 "第一次使用只需完成两件事：\n\n"
                 "1. 粘贴自己的 Token 或完整请求地址\n"
-                "2. 在“自动预约”中选择目标并点击“保存并启动”\n\n"
+                "2. 在“启动预约”中选择目标并点击“立即启动预约”\n\n"
                 "验证成功后，Token 和同行人学工号会保存在当前用户的本机配置中，"
                 "下次打开会自动读取。它们不会被打包进程序或上传到 GitHub。\n\n"
                 "是否现在设置 Token？"
@@ -527,8 +522,7 @@ class BookingApp:
         self.build_main_area(shell)
 
     def build_sidebar(self, parent):
-        # Windows 高 DPI 会放大字体，但固定像素侧栏不会同步变宽。
-        # 320 px 可完整容纳场馆名、导航说明和三个运动项目标签。
+        # Windows 高 DPI 会放大字体，侧栏需容纳完整导航名称。
         sidebar = tk.Frame(
             parent,
             bg=self.COLOR_BLUE,
@@ -589,10 +583,6 @@ class BookingApp:
         self.nav_section.pack(fill="x", padx=20)
         self.refresh_sidebar_nav_items()
 
-        self.venue_section = tk.Frame(sidebar, bg=self.COLOR_BLUE)
-        self.venue_section.pack(fill="x", padx=20, pady=(20, 0))
-        self.refresh_sidebar_venue_items()
-
         sidebar_footer = tk.Frame(sidebar, bg=self.COLOR_BLUE)
         sidebar_footer.pack(side="bottom", fill="x", padx=28, pady=28)
 
@@ -630,7 +620,7 @@ class BookingApp:
         return row
 
     def refresh_sidebar_nav_items(self):
-        """Render both function choices with an explicit current selection."""
+        """Render the three desktop destinations without venue navigation."""
 
         if self.nav_section is None:
             return
@@ -640,23 +630,30 @@ class BookingApp:
         self.create_sidebar_section_header(
             self.nav_section,
             title="功能导航",
-            meta="2 项",
+            meta="3 项",
         ).pack(fill="x", padx=2, pady=(0, 9))
 
         items = (
             (
                 "query",
-                "查",
+                "search",
                 "场地查询",
                 "查看空闲场地与时段",
                 self.show_query_page,
             ),
             (
                 "auto",
-                "约",
-                "自动预约",
-                "配置、启动与查看状态",
+                "calendar",
+                "启动预约",
+                "设置并立即运行",
                 self.open_auto_settings_dialog,
+            ),
+            (
+                "profile",
+                "person",
+                "个人中心",
+                "Token 与同行人",
+                self.show_profile_page,
             ),
         )
         for index, (key, icon, title, subtitle, command) in enumerate(items):
@@ -669,7 +666,7 @@ class BookingApp:
                     if key == self.current_view
                     else subtitle
                 ),
-                active=key == self.current_view,
+                active=key == self.current_view or (key == "auto" and self.current_view == "detail"),
                 command=command,
             )
             item.pack(fill="x", pady=(8 if index else 0, 0))
@@ -683,39 +680,27 @@ class BookingApp:
         active=False,
         command=None,
     ):
-        item_bg = "#103A78"
-        selected_green = "#1F9D68"
-        border_color = selected_green if active else "#315DAA"
+        item_bg = "#2A5FAF" if active else self.COLOR_BLUE
+        border_color = "#2A5FAF" if active else self.COLOR_BLUE
         item = tk.Frame(
             parent,
             bg=item_bg,
             takefocus=command is not None,
             cursor="hand2" if command else "arrow",
             highlightbackground=border_color,
-            highlightthickness=2 if active else 1,
+            highlightthickness=1,
         )
 
-        indicator = tk.Frame(
-            item,
-            width=4,
-            bg=selected_green if active else item_bg,
-        )
+        indicator = tk.Frame(item, width=4, bg="#FFFFFF" if active else item_bg)
         indicator.pack(side="left", fill="y")
         indicator.pack_propagate(False)
 
-        content = tk.Frame(item, bg=item_bg, padx=11, pady=10)
+        content = tk.Frame(item, bg=item_bg, padx=10, pady=12)
         content.pack(side="left", fill="both", expand=True)
 
-        icon_badge = tk.Label(
-            content,
-            text="✓" if active else icon,
-            width=3,
-            height=2,
-            font=(self.FONT, 9, "bold"),
-            fg="#FFFFFF" if active else "#D6E2F6",
-            bg=selected_green if active else "#24539A",
-        )
+        icon_badge = tk.Canvas(content, width=26, height=26, bg=item_bg, highlightthickness=0)
         icon_badge.pack(side="left", padx=(0, 11))
+        self.draw_sidebar_icon(icon_badge, icon)
 
         text_group = tk.Frame(content, bg=item_bg)
         text_group.pack(side="left", fill="x", expand=True)
@@ -727,20 +712,24 @@ class BookingApp:
             bg=item_bg,
         )
         title_label.pack(anchor="w")
-        subtitle_label = tk.Label(
-            text_group,
-            text=subtitle,
-            font=(self.FONT, 8, "bold" if active else "normal"),
-            fg="#FFFFFF" if active else "#A9BFDF",
-            bg=selected_green if active else item_bg,
-            padx=7 if active else 0,
-            pady=2 if active else 0,
-        )
-        subtitle_label.pack(anchor="w", pady=(3, 0))
-
         if command:
             self.bind_sidebar_action(item, command)
         return item
+
+    @staticmethod
+    def draw_sidebar_icon(canvas, icon):
+        color = "#FFFFFF"
+        if icon == "search":
+            canvas.create_oval(4, 3, 17, 16, outline=color, width=2)
+            canvas.create_line(16, 16, 23, 23, fill=color, width=2)
+        elif icon == "calendar":
+            canvas.create_rectangle(3, 6, 23, 23, outline=color, width=2)
+            canvas.create_line(3, 11, 23, 11, fill=color, width=2)
+            canvas.create_line(8, 3, 8, 9, fill=color, width=2)
+            canvas.create_line(18, 3, 18, 9, fill=color, width=2)
+        elif icon == "person":
+            canvas.create_oval(9, 3, 17, 11, outline=color, width=2)
+            canvas.create_arc(4, 13, 22, 29, start=0, extent=180, style="arc", outline=color, width=2)
 
     def bind_sidebar_action(self, widget, command):
         def run_keyboard_action(_event):
@@ -753,91 +742,6 @@ class BookingApp:
             self.bind_sidebar_action(child, command)
         widget.bind("<Return>", run_keyboard_action)
         widget.bind("<space>", run_keyboard_action)
-
-    def create_sidebar_venue_item(self, parent, venue, selected=False):
-        card_bg = "#103A78"
-        selected_green = "#1F9D68"
-        card = tk.Frame(
-            parent,
-            bg=card_bg,
-            padx=12,
-            pady=10,
-            highlightbackground=selected_green if selected else "#315DAA",
-            highlightthickness=2 if selected else 1,
-        )
-
-        heading = tk.Frame(card, bg=card_bg)
-        heading.pack(fill="x")
-        tk.Label(
-            heading,
-            text="✓" if selected else "馆",
-            width=3,
-            height=2,
-            font=(self.FONT, 9, "bold"),
-            fg="#FFFFFF",
-            bg=selected_green if selected else "#2A5DAA",
-        ).pack(side="left", padx=(0, 10))
-
-        title_group = tk.Frame(heading, bg=card_bg)
-        title_group.pack(side="left", fill="x", expand=True)
-        tk.Label(
-            title_group,
-            text=venue["name"],
-            font=(self.FONT, 11, "bold"),
-            fg="#FFFFFF",
-            bg=card_bg,
-        ).pack(anchor="w")
-        venue_status = tk.Label(
-            title_group,
-            text="✓ 当前选中" if selected else "点击切换到此场馆",
-            font=(self.FONT, 8, "bold" if selected else "normal"),
-            fg="#FFFFFF" if selected else "#B9CCEA",
-            bg=selected_green if selected else card_bg,
-            padx=7 if selected else 0,
-            pady=2 if selected else 0,
-        )
-        venue_status.pack(anchor="w", pady=(3, 0))
-
-        sports_row = tk.Frame(card, bg=card_bg)
-        sports_row.pack(fill="x", pady=(7, 0))
-        for sport_name in venue["sports"]:
-            tk.Label(
-                sports_row,
-                text=sport_name,
-                font=(self.FONT, 8),
-                fg="#C8D8F1",
-                bg="#1A4787",
-                padx=7,
-                pady=3,
-            ).pack(side="left", padx=(0, 5))
-
-        # 整张场馆卡都可点击，切换后查询项目会自动刷新。
-        self.bind_sidebar_action(
-            card,
-            lambda name=venue["name"]: self.select_venue(name),
-        )
-        return card
-
-    def refresh_sidebar_venue_items(self):
-        if self.venue_section is None:
-            return
-
-        for child in self.venue_section.winfo_children():
-            child.destroy()
-
-        self.create_sidebar_section_header(
-            self.venue_section,
-            title="服务场馆",
-            meta=f"{len(self.venue_options)} 个",
-        ).pack(fill="x", padx=2, pady=(0, 9))
-
-        for venue in self.venue_options:
-            venue_item = self.create_sidebar_venue_item(
-                self.venue_section,
-                venue=venue,
-                selected=venue["name"] == self.current_venue_name,
-            )
-            venue_item.pack(fill="x", pady=(0, 8))
 
     def build_main_area(self, parent):
         main = tk.Frame(parent, bg=self.COLOR_BG)
@@ -914,11 +818,219 @@ class BookingApp:
             return
         if self.auto_page is not None:
             self.auto_page.pack_forget()
+        if self.profile_page is not None:
+            self.profile_page.pack_forget()
+        if self.detail_page is not None:
+            self.detail_page.pack_forget()
         self.query_page.pack(fill="both", expand=True)
         self.current_view = "query"
         self.main_subtitle_var.set("体育场馆")
         self.main_title_var.set("场地预约查询")
         self.refresh_sidebar_nav_items()
+
+    @staticmethod
+    def mask_private_value(value):
+        value = str(value or "")
+        if not value:
+            return "未设置"
+        if len(value) <= 8:
+            return "*" * len(value)
+        return f"{value[:4]}{'*' * min(16, len(value) - 8)}{value[-4:]}"
+
+    def show_profile_page(self):
+        self.query_page.pack_forget()
+        if self.auto_page is not None:
+            self.auto_page.pack_forget()
+        if self.detail_page is not None:
+            self.detail_page.pack_forget()
+        self.current_view = "profile"
+        self.main_subtitle_var.set("个人设置")
+        self.main_title_var.set("个人中心")
+        self.refresh_sidebar_nav_items()
+        if self.profile_page is None:
+            self.build_profile_page()
+        else:
+            self.profile_token_status_var.set(self.profile_token_status_text())
+            try:
+                config = load_auto_config(AUTO_CONFIG_FILE, create_if_missing=True)
+                companion_number = config["companion_student_number"]
+            except (OSError, ValueError):
+                companion_number = ""
+            self.profile_companion_status_var.set(
+                f"已保存 · {self.mask_private_value(companion_number)}"
+                if companion_number else "未设置"
+            )
+        self.profile_page.pack(fill="both", expand=True)
+
+    def build_profile_page(self):
+        page = tk.Frame(self.content_host, bg=self.COLOR_BG, padx=28, pady=24)
+        self.profile_page = page
+        tk.Label(
+            page, text="预约必备信息", font=(self.FONT, 19, "bold"),
+            fg=self.COLOR_TEXT, bg=self.COLOR_BG,
+        ).pack(anchor="w", pady=(0, 16))
+        try:
+            config = load_auto_config(AUTO_CONFIG_FILE, create_if_missing=True)
+        except (OSError, ValueError):
+            config = {"companion_student_number": ""}
+        self.profile_token_status_var = tk.StringVar(
+            value=self.profile_token_status_text()
+        )
+        self.profile_companion_status_var = tk.StringVar(
+            value=(
+                f"已保存 · {self.mask_private_value(config['companion_student_number'])}"
+                if config["companion_student_number"] else "未设置"
+            )
+        )
+        for icon, title, description, status_var, action, handler in (
+            ("↗", "JLU Token", "用于查询和提交预约", self.profile_token_status_var,
+             "更新 Token", self.start_profile_token_update),
+            ("♙", "同行人", "预约时使用已验证的同行人", self.profile_companion_status_var,
+             "修改同行人", self.start_profile_companion_update),
+        ):
+            card = self.create_card(page, padx=18, pady=18)
+            card.pack(fill="x", pady=(0, 12))
+            tk.Label(
+                card, text=icon, font=(self.FONT, 22), fg=self.COLOR_BLUE,
+                bg=self.COLOR_BLUE_TINT, width=3,
+            ).pack(side="left", padx=(0, 18))
+            text_group = tk.Frame(card, bg=self.COLOR_CARD)
+            text_group.pack(side="left", fill="x", expand=True)
+            tk.Label(
+                text_group, text=title, font=(self.FONT, 15, "bold"),
+                fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
+            ).pack(anchor="w")
+            tk.Label(
+                text_group, text=description, font=(self.FONT, 9),
+                fg=self.COLOR_SUBTEXT, bg=self.COLOR_CARD,
+            ).pack(anchor="w", pady=(4, 0))
+            tk.Label(
+                text_group, textvariable=status_var, font=(self.FONT, 10, "bold"),
+                fg=self.COLOR_GREEN, bg=self.COLOR_CARD,
+            ).pack(anchor="w", pady=(7, 0))
+            button = tk.Label(
+                card, text=f"{action}  →",
+                font=(self.FONT, 10, "bold"), fg=self.COLOR_BLUE,
+                bg=self.COLOR_BLUE_TINT, padx=13, pady=9,
+                cursor="hand2", takefocus=True,
+            )
+            button.pack(side="right")
+            button.bind("<Button-1>", lambda _event, callback=handler: callback())
+            button.bind("<Return>", lambda _event, callback=handler: callback())
+            button.bind("<space>", lambda _event, callback=handler: callback())
+        tk.Label(
+            page, text="信息只保存在本机；更改会在下次启动预约时使用。",
+            font=(self.FONT, 9), fg=self.COLOR_SUBTEXT, bg=self.COLOR_BG,
+        ).pack(anchor="w", pady=(5, 0))
+
+    def profile_token_status_text(self):
+        token = str(self.token or "")
+        if not token:
+            return "未设置"
+        environment_token = os.environ.get("JLU_BOOKING_TOKEN", "").strip()
+        if environment_token and environment_token != token:
+            return "已保存新 Token；下次启动前还需更新环境变量"
+        if self.token_source == "environment":
+            return f"当前环境变量 · {self.mask_private_value(token)}"
+        if self.token_source == "session":
+            return f"仅当前会话 · {self.mask_private_value(token)}"
+        return f"已保存 · {self.mask_private_value(token)}"
+
+    def start_profile_token_update(self):
+        raw = simpledialog.askstring(
+            "更新 Token", "粘贴新的 JLU Token 或包含 token= 的请求地址：",
+            parent=self.root, show="*",
+        )
+        if raw is None:
+            return
+        try:
+            candidate = extract_token_input(raw)
+        except ValueError as exc:
+            self.profile_token_status_var.set(str(exc))
+            return
+        self.profile_token_status_var.set("正在验证新 Token…")
+        threading.Thread(
+            target=self.run_profile_token_update, args=(candidate,), daemon=True,
+        ).start()
+
+    def run_profile_token_update(self, candidate):
+        try:
+            result = self.validate_token(candidate)
+        except Exception:
+            result = None
+        self.root.after(0, self.complete_profile_token_update, candidate, result)
+
+    def complete_profile_token_update(self, candidate, validation):
+        if validation is None or validation.status != "valid":
+            self.profile_token_status_var.set(
+                "验证失败，原 Token 保持不变" if validation and validation.status == "invalid"
+                else "暂时无法验证，原 Token 保持不变"
+            )
+            return
+        try:
+            save_token(candidate)
+        except (TokenStoreError, ValueError) as exc:
+            self.profile_token_status_var.set(f"保存失败：{exc}")
+            return
+        self.token = candidate
+        overridden_by_environment = bool(
+            os.environ.get("JLU_BOOKING_TOKEN")
+            and os.environ["JLU_BOOKING_TOKEN"].strip() != candidate
+        )
+        self.token_source = "session" if overridden_by_environment else "saved"
+        self.token_validated = True
+        self.profile_token_status_var.set(
+            "已保存；下次启动前还需更新 JLU_BOOKING_TOKEN 环境变量"
+            if overridden_by_environment
+            else f"已验证并保存 · {self.mask_private_value(candidate)}"
+        )
+
+    def start_profile_companion_update(self):
+        number = simpledialog.askstring(
+            "修改同行人", "输入同行人学工号；保存前会向学校系统验证：",
+            parent=self.root,
+        )
+        if number is None:
+            return
+        try:
+            number = require_companion_student_number(number)
+        except ValueError as exc:
+            self.profile_companion_status_var.set(str(exc))
+            return
+        token = self.get_token(parent=self.root)
+        if not token:
+            return
+        self.profile_companion_status_var.set("正在验证同行人…")
+        threading.Thread(
+            target=self.run_profile_companion_update,
+            args=(number, token), daemon=True,
+        ).start()
+
+    def run_profile_companion_update(self, number, token):
+        try:
+            companion = get_companion_user(student_number=number, token=token)
+        except Exception:
+            companion = None
+        self.root.after(0, self.complete_profile_companion_update, number, companion)
+
+    def complete_profile_companion_update(self, number, companion):
+        if not companion or not companion.get("name"):
+            self.profile_companion_status_var.set("验证失败，原同行人保持不变")
+            return
+        try:
+            config = load_auto_config(AUTO_CONFIG_FILE, create_if_missing=True)
+            config["companion_student_number"] = number
+            save_auto_config(config, AUTO_CONFIG_FILE)
+        except (OSError, ValueError) as exc:
+            self.profile_companion_status_var.set(f"保存失败：{exc}")
+            return
+        if self.auto_companion_var is not None:
+            self.auto_companion_var.set(number)
+        self.auto_validated_companion_number = number
+        self.auto_validated_companion_name = companion["name"]
+        self.profile_companion_status_var.set(
+            f"已验证 · {companion['name']} · {self.mask_private_value(number)}"
+        )
 
     def build_query_card(self, parent):
         card = self.create_card(parent, padx=21, pady=18)
@@ -944,6 +1056,24 @@ class BookingApp:
             pady=5,
         ).pack(side="right")
 
+        initial_auto_config = self.startup_config
+        self.venue_var = tk.StringVar(value=initial_auto_config["venue"])
+        self.current_venue_name = initial_auto_config["venue"]
+        venue_group = tk.Frame(card, bg=self.COLOR_CARD)
+        venue_group.pack(fill="x", pady=(0, 15))
+        tk.Label(
+            venue_group, text="场馆", font=(self.FONT, 9, "bold"),
+            fg=self.COLOR_SUBTEXT, bg=self.COLOR_CARD,
+        ).pack(anchor="w", pady=(0, 7))
+        self.query_venue_buttons = {}
+        for venue_name in VENUES:
+            button = self.create_select_button(
+                venue_group, venue_name,
+                lambda name=venue_name: self.select_venue(name),
+            )
+            button.pack(side="left", padx=(0, 8))
+            self.query_venue_buttons[venue_name] = button
+
         row = tk.Frame(card, bg=self.COLOR_CARD)
         row.pack(fill="x")
         row.grid_columnconfigure(2, weight=1)
@@ -958,9 +1088,6 @@ class BookingApp:
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(0, 7))
 
-        initial_auto_config = self.startup_config
-        self.venue_var = tk.StringVar(value=initial_auto_config["venue"])
-        self.current_venue_name = initial_auto_config["venue"]
         if self.query_venue_badge_var is not None:
             self.query_venue_badge_var.set(self.current_venue_name)
 
@@ -1165,6 +1292,7 @@ class BookingApp:
 
         changed = venue_name != self.current_venue_name
         self.current_venue_name = venue_name
+        self.style_venue_buttons()
         if self.venue_var is not None:
             self.venue_var.set(venue_name)
         if self.query_venue_badge_var is not None:
@@ -1177,11 +1305,16 @@ class BookingApp:
                 self.auto_venue_badge_var.set(venue_name)
             self.rebuild_auto_sport_buttons()
             self.update_auto_setting_controls()
-        self.refresh_sidebar_venue_items()
 
         if changed and hasattr(self, "result_scroll"):
             self.clear_results()
             self.bottom_status_var.set(f"已切换至 {venue_name}")
+
+    def style_venue_buttons(self):
+        for name, button in getattr(self, "query_venue_buttons", {}).items():
+            self.style_select_button(button, name == self.current_venue_name)
+        for name, button in getattr(self, "auto_venue_buttons", {}).items():
+            self.style_auto_select_button(button, name, name == self.current_venue_name)
 
     def rebuild_sport_buttons(self):
         if self.sport_choices is None or self.sport_var is None or self.venue_var is None:
@@ -1219,6 +1352,7 @@ class BookingApp:
         self.update_select_buttons()
 
     def update_select_buttons(self):
+        self.style_venue_buttons()
         for name, button in self.sport_buttons.items():
             self.style_select_button(button, name == self.sport_var.get())
         for key, button in self.date_buttons.items():
@@ -2448,10 +2582,14 @@ class BookingApp:
         """Show automatic booking as a first-class page in the main area."""
         if self.auto_page is not None and self.auto_page.winfo_exists():
             self.query_page.pack_forget()
+            if self.profile_page is not None:
+                self.profile_page.pack_forget()
+            if self.detail_page is not None:
+                self.detail_page.pack_forget()
             self.auto_page.pack(fill="both", expand=True)
             self.current_view = "auto"
-            self.main_subtitle_var.set("自动任务")
-            self.main_title_var.set("自动预约")
+            self.main_subtitle_var.set("立即预约")
+            self.main_title_var.set("启动预约")
             self.auto_venue_var.set(self.current_venue_name)
             self.auto_venue_badge_var.set(self.current_venue_name)
             self.rebuild_auto_sport_buttons()
@@ -2466,13 +2604,17 @@ class BookingApp:
             return
 
         self.query_page.pack_forget()
+        if self.profile_page is not None:
+            self.profile_page.pack_forget()
+        if self.detail_page is not None:
+            self.detail_page.pack_forget()
         shell = tk.Frame(self.content_host, bg=self.COLOR_BG, padx=28, pady=22)
         self.auto_page = shell
         self.auto_settings_dialog = shell
         shell.pack(fill="both", expand=True)
         self.current_view = "auto"
-        self.main_subtitle_var.set("自动任务")
-        self.main_title_var.set("自动预约")
+        self.main_subtitle_var.set("立即预约")
+        self.main_title_var.set("启动预约")
         self.refresh_sidebar_nav_items()
 
         settings_scroll = ScrollableFrame(shell, bg=self.COLOR_BG)
@@ -2502,12 +2644,21 @@ class BookingApp:
             pady=6,
         ).pack(side="right")
         tk.Label(
-            card,
-            text="场馆由左侧统一选择，切换后下方项目会自动更新。",
-            font=(self.FONT, 8),
-            fg=self.COLOR_SUBTEXT,
-            bg=self.COLOR_CARD,
-        ).pack(anchor="w", pady=(0, 10))
+            card, text="场馆", font=(self.FONT, 10, "bold"),
+            fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
+        ).pack(anchor="w")
+        venue_row = tk.Frame(card, bg=self.COLOR_CARD)
+        venue_row.pack(fill="x", pady=(6, 10))
+        self.auto_venue_buttons = {}
+        for venue_name in VENUES:
+            button = self.create_auto_select_button(
+                venue_row, venue_name,
+                lambda name=venue_name: self.select_venue(name),
+                width=14,
+            )
+            button.pack(side="left", padx=(0, 8))
+            self.auto_venue_buttons[venue_name] = button
+        self.style_venue_buttons()
 
         # 运动项目（随场馆动态变化）
         tk.Label(
@@ -2655,35 +2806,21 @@ class BookingApp:
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
-        tk.Label(
-            card,
-            text=(
-                "每行填写一个时间段，例如 17:30-19:30。程序按顺序选择时间；"
-                "同一时间优先首选场地，其他时间排在最后。"
-            ),
-            font=(self.FONT, 8),
-            fg=self.COLOR_SUBTEXT,
-            bg=self.COLOR_CARD,
-        ).pack(anchor="w", pady=(4, 6))
-        self.auto_time_text = tk.Text(
-            card,
-            height=7,
-            font=(self.FONT_MONO, 10),
-            fg=self.COLOR_TEXT,
-            bg=self.COLOR_CONTROL,
-            insertbackground=self.COLOR_TEXT,
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground=self.COLOR_BORDER,
-            highlightcolor=self.COLOR_BLUE_MID,
-            padx=10,
-            pady=8,
+        self.auto_time_container = tk.Frame(
+            card, bg=self.COLOR_CONTROL,
+            highlightbackground=self.COLOR_BORDER, highlightthickness=1,
         )
-        self.auto_time_text.pack(fill="x", pady=(0, 10))
-        self.auto_time_text.insert(
-            "1.0",
-            "\n".join(f"{start}-{end}" for start, end in config["time_priority"]),
-        )
+        self.auto_time_container.pack(fill="x", pady=(7, 14))
+        self.auto_time_rows = [
+            {
+                "pair": list(pair),
+                "selected": tk.BooleanVar(
+                    value=list(pair) in config.get("selected_time_priority", config["time_priority"])
+                ),
+            }
+            for pair in config["time_priority"]
+        ]
+        self.render_auto_time_rows()
 
         tk.Label(
             card,
@@ -2727,70 +2864,6 @@ class BookingApp:
         )
         self.auto_mode_note_label.pack(anchor="w", pady=(6, 0))
 
-        path_text = str(AUTO_CONFIG_FILE)
-        tk.Label(
-            card,
-            text=(
-                f"本机配置文件：{path_text}（Token 单独保存在当前用户目录）"
-            ),
-            font=(self.FONT, 8),
-            fg=self.COLOR_MUTED,
-            bg=self.COLOR_CARD,
-            wraplength=670,
-            justify="left",
-        ).pack(anchor="w", pady=(8, 0))
-
-        run_panel = tk.Frame(
-            card,
-            bg=self.COLOR_BLUE_PALE,
-            padx=12,
-            pady=10,
-            highlightbackground=self.COLOR_BORDER,
-            highlightthickness=1,
-        )
-        run_panel.pack(fill="x", pady=(12, 0))
-        status_row = tk.Frame(run_panel, bg=self.COLOR_BLUE_PALE)
-        status_row.pack(fill="x")
-        tk.Label(
-            status_row,
-            text="自动任务状态",
-            font=(self.FONT, 10, "bold"),
-            fg=self.COLOR_TEXT,
-            bg=self.COLOR_BLUE_PALE,
-        ).pack(side="left")
-        tk.Label(
-            status_row,
-            textvariable=self.auto_status_var,
-            font=(self.FONT, 9, "bold"),
-            fg=self.COLOR_BLUE,
-            bg=self.COLOR_BLUE_PALE,
-        ).pack(side="right")
-
-        log_access_row = tk.Frame(run_panel, bg=self.COLOR_BLUE_PALE)
-        log_access_row.pack(fill="x", pady=(9, 0))
-        tk.Label(
-            log_access_row,
-            text="运行输出不再挤在设置页中；启动任务时会自动打开独立日志窗口。",
-            font=(self.FONT, 8),
-            fg=self.COLOR_SUBTEXT,
-            bg=self.COLOR_BLUE_PALE,
-        ).pack(side="left")
-        open_log_button = tk.Label(
-            log_access_row,
-            text="打开日志窗口",
-            font=(self.FONT, 8, "bold"),
-            fg="#FFFFFF",
-            bg=self.COLOR_BLUE,
-            cursor="hand2",
-            padx=11,
-            pady=6,
-        )
-        open_log_button.pack(side="right")
-        open_log_button.bind(
-            "<Button-1>",
-            lambda _event: self.open_auto_log_window("live"),
-        )
-
         action_row = tk.Frame(shell, bg=self.COLOR_BG)
         action_row.pack(fill="x", pady=(10, 0))
         self.auto_save_button = tk.Label(
@@ -2811,7 +2884,7 @@ class BookingApp:
 
         self.auto_start_button = tk.Label(
             action_row,
-            text="保存并启动",
+            text="立即启动预约",
             font=(self.FONT, 10, "bold"),
             fg="#FFFFFF",
             bg=self.COLOR_GREEN,
@@ -2844,6 +2917,45 @@ class BookingApp:
         self.update_auto_setting_controls()
         self.refresh_auto_process_controls()
         shell.after_idle(lambda: settings_scroll.canvas.yview_moveto(0))
+
+    def render_auto_time_rows(self):
+        for child in self.auto_time_container.winfo_children():
+            child.destroy()
+        self.auto_time_controls = []
+        for index, item in enumerate(self.auto_time_rows):
+            row = tk.Frame(self.auto_time_container, bg=self.COLOR_CONTROL)
+            row.pack(fill="x", padx=10, pady=2)
+            checkbox = tk.Checkbutton(
+                row, variable=item["selected"],
+                text=f"{item['pair'][0]}—{item['pair'][1]}",
+                font=(self.FONT, 10, "bold"), fg=self.COLOR_TEXT,
+                bg=self.COLOR_CONTROL, activebackground=self.COLOR_CONTROL,
+                selectcolor=self.COLOR_CARD, anchor="w",
+                state="disabled" if self.is_saving_auto_config else "normal",
+            )
+            checkbox.pack(side="left", fill="x", expand=True)
+            self.auto_time_controls.append(checkbox)
+            for label, direction in (("↑", -1), ("↓", 1)):
+                button = tk.Button(
+                    row, text=label, font=(self.FONT, 12, "bold"),
+                    fg=self.COLOR_BLUE, bg=self.COLOR_CONTROL,
+                    relief="flat", bd=0, cursor="hand2",
+                    command=lambda i=index, d=direction: self.move_auto_time_row(i, d),
+                    state="disabled" if self.is_saving_auto_config else "normal",
+                )
+                button.pack(side="right", padx=3)
+                self.auto_time_controls.append(button)
+
+    def move_auto_time_row(self, index, direction):
+        if self.is_saving_auto_config:
+            return
+        next_index = index + direction
+        if not 0 <= next_index < len(self.auto_time_rows):
+            return
+        self.auto_time_rows[index], self.auto_time_rows[next_index] = (
+            self.auto_time_rows[next_index], self.auto_time_rows[index]
+        )
+        self.render_auto_time_rows()
 
     def create_auto_select_button(self, parent, text, command, width):
         button = tk.Label(
@@ -2988,21 +3100,12 @@ class BookingApp:
         self.refresh_auto_process_controls()
 
     def collect_auto_settings(self):
-        if not self.auto_time_text or not self.auto_companion_entry:
-            raise ValueError("自动预约设置窗口尚未准备完成。")
-
-        raw_lines = self.auto_time_text.get("1.0", "end").splitlines()
-        time_priority = []
-        for index, raw in enumerate(raw_lines, start=1):
-            text = raw.strip()
-            if not text:
-                continue
-            if "-" not in text:
-                raise ValueError(
-                    f"重点时间第 {index} 行格式错误：{text!r}。请使用 HH:MM-HH:MM。"
-                )
-            start, end = (part.strip() for part in text.split("-", 1))
-            time_priority.append([start, end])
+        if not self.auto_time_rows or not self.auto_companion_entry:
+            raise ValueError("启动预约页面尚未准备完成。")
+        time_priority = [
+            item["pair"] for item in self.auto_time_rows if item["selected"].get()
+        ]
+        all_times = [item["pair"] for item in self.auto_time_rows]
 
         companion_number = require_companion_student_number(
             self.auto_companion_entry.get()
@@ -3015,7 +3118,8 @@ class BookingApp:
             "companion_student_number": companion_number,
             "preferred_court_number": self.auto_court_var.get(),
             "real_booking_enabled": bool(self.auto_real_booking_var.get()),
-            "time_priority": time_priority,
+            "time_priority": time_priority + [pair for pair in all_times if pair not in time_priority],
+            "selected_time_priority": time_priority,
         }
         return validate_auto_config(config)
 
@@ -3025,7 +3129,7 @@ class BookingApp:
         for widget in (
             self.auto_companion_entry,
             self.auto_court_spinbox,
-            self.auto_time_text,
+            *self.auto_time_controls,
         ):
             if widget is not None:
                 widget.configure(state=widget_state)
@@ -3128,7 +3232,6 @@ class BookingApp:
         if self.query_venue_badge_var is not None:
             self.query_venue_badge_var.set(saved["venue"])
         self.rebuild_sport_buttons()
-        self.refresh_sidebar_venue_items()
         self.date_var.set("today" if saved["target_day"] == "今天" else "tomorrow")
         self.update_select_buttons()
 
@@ -3158,7 +3261,7 @@ class BookingApp:
         if self.auto_start_button:
             start_enabled = config_actions_enabled and not running
             self.auto_start_button.configure(
-                text="任务运行中" if running else "保存并启动",
+                text="任务运行中" if running else "立即启动预约",
                 fg="#FFFFFF" if start_enabled else "#D8E2F2",
                 bg=self.COLOR_GREEN if start_enabled else "#7893C2",
                 cursor="hand2" if start_enabled else "arrow",
@@ -3178,6 +3281,7 @@ class BookingApp:
 
         command = build_auto_worker_command(
             real_booking_enabled=config["real_booking_enabled"],
+            immediate=True,
         )
         environment = os.environ.copy()
         environment["PYTHONUTF8"] = "1"
@@ -3227,7 +3331,7 @@ class BookingApp:
             daemon=True,
         )
         self.auto_process_reader.start()
-        self.open_auto_log_window("live")
+        self.show_auto_task_detail(config)
 
     def read_auto_process_output(self, process):
         if process.stdout is not None:
@@ -3308,6 +3412,146 @@ class BookingApp:
                 parent=self.auto_settings_dialog or self.root,
             )
 
+    def show_auto_task_detail(self, config):
+        """Show the running desktop task beside its live output."""
+        self.query_page.pack_forget()
+        if self.auto_page is not None:
+            self.auto_page.pack_forget()
+        if self.profile_page is not None:
+            self.profile_page.pack_forget()
+        if self.detail_page is not None:
+            self.detail_page.destroy()
+        self.current_view = "detail"
+        self.main_subtitle_var.set("预约任务")
+        self.main_title_var.set("启动预约")
+        self.refresh_sidebar_nav_items()
+
+        page = tk.Frame(self.content_host, bg=self.COLOR_BG, padx=24, pady=20)
+        self.detail_page = page
+        page.pack(fill="both", expand=True)
+        heading = tk.Frame(page, bg=self.COLOR_BG)
+        heading.pack(fill="x", pady=(0, 15))
+        tk.Label(
+            heading, text="任务详情", font=(self.FONT, 22, "bold"),
+            fg=self.COLOR_TEXT, bg=self.COLOR_BG,
+        ).pack(side="left")
+        back_button = tk.Label(
+            heading, text="← 返回",
+            font=(self.FONT, 11, "bold"), fg=self.COLOR_BLUE,
+            bg=self.COLOR_CARD, padx=16, pady=9,
+            cursor="hand2", takefocus=True,
+        )
+        back_button.pack(side="right")
+        back_button.bind("<Button-1>", lambda _event: self.open_auto_settings_dialog())
+        back_button.bind("<Return>", lambda _event: self.open_auto_settings_dialog())
+        back_button.bind("<space>", lambda _event: self.open_auto_settings_dialog())
+        columns = tk.Frame(page, bg=self.COLOR_BG)
+        columns.pack(fill="both", expand=True)
+        columns.grid_columnconfigure(0, weight=1, uniform="detail")
+        columns.grid_columnconfigure(1, weight=1, uniform="detail")
+        columns.grid_rowconfigure(0, weight=1)
+
+        overview = self.create_card(columns, padx=22, pady=20)
+        overview.grid(row=0, column=0, sticky="nsew", padx=(0, 9))
+        tk.Label(
+            overview, text="任务概览", font=(self.FONT, 17, "bold"),
+            fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
+        ).pack(anchor="w")
+        status_box = tk.Frame(overview, bg=self.COLOR_BLUE_TINT, padx=19, pady=18)
+        status_box.pack(fill="x", pady=(18, 14))
+        tk.Label(
+            status_box, textvariable=self.auto_status_var,
+            font=(self.FONT, 19, "bold"), fg=self.COLOR_BLUE,
+            bg=self.COLOR_BLUE_TINT,
+        ).pack(anchor="w")
+        tk.Label(
+            status_box, text="任务状态与运行进度显示在右侧日志。",
+            font=(self.FONT, 11), fg=self.COLOR_SUBTEXT,
+            bg=self.COLOR_BLUE_TINT,
+        ).pack(anchor="w", pady=(4, 0))
+        target_date = date.today() + timedelta(days=config["target_day"] == "明天")
+        rows = (
+            ("运行阶段", "立即预约"),
+            ("目标日", target_date.isoformat()),
+            ("场馆", config["venue"]),
+            ("项目", config["sport"]),
+            ("首选场地", f"{config['preferred_court_number']} 号场"),
+            ("预约模式", "真实预约" if config["real_booking_enabled"] else "仅扫描"),
+            ("同行人", self.mask_private_value(config["companion_student_number"])),
+            ("重点时间排序", " › ".join(
+                f"{start}–{end}" for start, end in config["time_priority"]
+            )),
+        )
+        for label, value in rows:
+            row = tk.Frame(overview, bg=self.COLOR_CARD)
+            row.pack(fill="x", pady=7)
+            tk.Label(
+                row, text=label, width=11, anchor="w",
+                font=(self.FONT, 11), fg=self.COLOR_SUBTEXT,
+                bg=self.COLOR_CARD,
+            ).pack(side="left")
+            tk.Label(
+                row, text=value, font=(self.FONT, 11, "bold"),
+                fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
+                wraplength=370, justify="left", anchor="w",
+            ).pack(side="left", fill="x", expand=True)
+            tk.Frame(overview, bg=self.COLOR_BORDER, height=1).pack(fill="x")
+        buttons = tk.Frame(overview, bg=self.COLOR_CARD)
+        buttons.pack(fill="x", pady=(20, 0))
+        for label, command, background, foreground in (
+            ("刷新状态", self.refresh_auto_log_view, self.COLOR_BLUE, "#FFFFFF"),
+            ("停止任务", self.stop_auto_booking, self.COLOR_RED_BG, self.COLOR_RED),
+            ("查看配置", self.open_auto_settings_dialog, self.COLOR_CONTROL, self.COLOR_TEXT),
+        ):
+            action = tk.Label(
+                buttons, text=label,
+                font=(self.FONT, 11, "bold"), fg=foreground,
+                bg=background, padx=15, pady=10, cursor="hand2",
+                takefocus=True,
+            )
+            action.pack(side="left", padx=(0, 9))
+            action.bind("<Button-1>", lambda _event, callback=command: callback())
+            action.bind("<Return>", lambda _event, callback=command: callback())
+            action.bind("<space>", lambda _event, callback=command: callback())
+
+        log_card = self.create_card(columns, padx=19, pady=20)
+        log_card.grid(row=0, column=1, sticky="nsew", padx=(9, 0))
+        log_heading = tk.Frame(log_card, bg=self.COLOR_CARD)
+        log_heading.pack(fill="x", pady=(0, 13))
+        tk.Label(
+            log_heading, text="运行日志", font=(self.FONT, 17, "bold"),
+            fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
+        ).pack(side="left")
+        full_log_button = tk.Label(
+            log_heading, text="全屏查看",
+            font=(self.FONT, 11, "bold"), fg=self.COLOR_BLUE,
+            bg=self.COLOR_CONTROL, padx=13, pady=8,
+            cursor="hand2", takefocus=True,
+        )
+        full_log_button.pack(side="right")
+        full_log_button.bind("<Button-1>", lambda _event: self.open_auto_log_window("live"))
+        full_log_button.bind("<Return>", lambda _event: self.open_auto_log_window("live"))
+        full_log_button.bind("<space>", lambda _event: self.open_auto_log_window("live"))
+        viewer = tk.Frame(
+            log_card, bg=self.COLOR_BLUE_PALE,
+            highlightbackground=self.COLOR_BORDER, highlightthickness=1,
+        )
+        viewer.pack(fill="both", expand=True)
+        log_text = tk.Text(
+            viewer, font=(self.FONT_MONO, 11), fg=self.COLOR_TEXT,
+            bg="#F8FAFF", relief="flat", wrap="word", padx=15, pady=15,
+            spacing1=2, spacing3=3,
+            state="disabled",
+        )
+        log_text.pack(side="left", fill="both", expand=True)
+        scrollbar = ttk.Scrollbar(viewer, orient="vertical", command=log_text.yview)
+        scrollbar.pack(side="right", fill="y")
+        log_text.configure(yscrollcommand=scrollbar.set)
+        self.auto_log_mode = "live"
+        self.auto_log_text = log_text
+        self.detail_log_text = log_text
+        self.set_auto_log_text("".join(self.auto_output_lines), scroll_to_end=True)
+
     def open_auto_log_window(self, initial_view="live"):
         """Open a large, non-modal window for live output and persisted logs."""
 
@@ -3325,7 +3569,7 @@ class BookingApp:
 
         window = tk.Toplevel(self.root)
         self.auto_log_window = window
-        window.title("JLU Booking · 自动预约日志")
+        window.title("JLU Booking · 启动预约日志")
         window.configure(bg=self.COLOR_BG)
         window.minsize(680, 440)
         width, height, x, y = self.dialog_geometry(920, 620)
@@ -3346,7 +3590,7 @@ class BookingApp:
         title_group.pack(side="left", fill="x", expand=True)
         tk.Label(
             title_group,
-            text="自动预约日志",
+            text="启动预约日志",
             font=(self.FONT, 18, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_BG,
@@ -3491,7 +3735,7 @@ class BookingApp:
     def close_auto_log_window(self):
         window = self.auto_log_window
         self.auto_log_window = None
-        self.auto_log_text = None
+        self.auto_log_text = getattr(self, "detail_log_text", None)
         self.auto_log_title_var = None
         self.auto_log_buttons = {}
         if window is not None:
@@ -3499,6 +3743,9 @@ class BookingApp:
                 window.destroy()
             except tk.TclError:
                 pass
+        if self.auto_log_text is not None and self.auto_log_text.winfo_exists():
+            self.auto_log_mode = "live"
+            self.set_auto_log_text("".join(self.auto_output_lines), scroll_to_end=True)
 
     def set_auto_log_text(self, content, *, scroll_to_end=False):
         if self.auto_log_text is None or not self.auto_log_text.winfo_exists():
@@ -3542,7 +3789,7 @@ class BookingApp:
         if kind == "live":
             content = "".join(self.auto_output_lines)
             if not content:
-                content = "任务尚未启动。点击“保存并启动”后，运行输出会显示在这里。\n"
+                content = "任务尚未启动。点击“立即启动预约”后，运行输出会显示在这里。\n"
             self.set_auto_log_text(content, scroll_to_end=True)
             return
 

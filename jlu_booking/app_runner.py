@@ -8,6 +8,7 @@ import sys
 def build_auto_worker_command(
     *,
     real_booking_enabled: bool,
+    immediate: bool = False,
     executable: str | None = None,
     frozen: bool | None = None,
     module: str = "jlu_booking.auto",
@@ -23,4 +24,6 @@ def build_auto_worker_command(
     )
     if not real_booking_enabled:
         command.append("--dry-run")
+    if immediate:
+        command.append("--immediate")
     return command

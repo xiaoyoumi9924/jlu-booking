@@ -198,7 +198,7 @@ def build_arg_parser():
     parser.add_argument("--court", type=int, help="临时覆盖首选场地编号")
     parser.add_argument(
         "--immediate", action="store_true",
-        help="立即开始持续查询；仅供网页单次任务使用，不等待每天预约窗口",
+        help="立即开始持续查询，直到成功、明确异常或手动停止；不等待每天预约窗口",
     )
     parser.add_argument(
         "--time",

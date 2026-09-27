@@ -32,3 +32,12 @@ def test_source_auto_worker_command_accepts_explicit_module():
         frozen=False,
         module="jlu_booking.auto",
     ) == ["python-web", "-m", "jlu_booking.auto", "--dry-run"]
+
+
+def test_desktop_start_booking_runs_immediately():
+    assert build_auto_worker_command(
+        real_booking_enabled=True,
+        immediate=True,
+        executable="python-test",
+        frozen=False,
+    ) == ["python-test", "-m", "jlu_booking.auto", "--immediate"]

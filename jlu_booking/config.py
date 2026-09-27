@@ -28,6 +28,7 @@ DEFAULT_AUTO_CONFIG = {
     "preferred_court_number": 3,
     "real_booking_enabled": False,
     "time_priority": [list(item) for item in DEFAULT_TIME_PRIORITY],
+    "selected_time_priority": [list(item) for item in DEFAULT_TIME_PRIORITY],
 }
 
 _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
@@ -130,6 +131,13 @@ def validate_auto_config(config):
         )
 
     time_priority = _complete_time_priority(merged.get("time_priority"))
+    if "selected_time_priority" in config:
+        raw_selection = config["selected_time_priority"]
+        selected_time_priority = (
+            [] if raw_selection == [] else normalize_time_priority(raw_selection)
+        )
+    else:
+        selected_time_priority = list(time_priority)
 
     return {
         "venue": venue,
@@ -139,6 +147,7 @@ def validate_auto_config(config):
         "preferred_court_number": preferred_court_number,
         "real_booking_enabled": real_booking_enabled,
         "time_priority": time_priority,
+        "selected_time_priority": selected_time_priority,
     }
 
 

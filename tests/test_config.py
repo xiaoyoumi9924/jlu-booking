@@ -61,6 +61,19 @@ def test_time_priority_is_deduplicated_without_reordering():
     ) == [["17:30", "19:30"], ["10:00", "12:00"]]
 
 
+def test_desktop_selected_priority_times_persist_independently(tmp_path):
+    config = save_auto_config(
+        {
+            **DEFAULT_AUTO_CONFIG,
+            "selected_time_priority": [["17:30", "19:30"]],
+        },
+        tmp_path / "auto_booking.json",
+    )
+    assert config["selected_time_priority"] == [["17:30", "19:30"]]
+    assert len(config["time_priority"]) == 7
+    assert load_auto_config(tmp_path / "auto_booking.json")["selected_time_priority"] == [["17:30", "19:30"]]
+
+
 @pytest.mark.parametrize(
     "value",
     [
