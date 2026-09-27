@@ -9,11 +9,7 @@
   </p>
 </div>
 
-## 网站
 
-访问：
-
-[https://booking.meiyh9924.xyz](https://booking.meiyh9924.xyz)
 
 ## 立即下载
 
@@ -99,6 +95,10 @@ Linux：运行 `JLU Booking`
 - [Linux 安装与使用](docs/linux.md)
 - [贡献指南](CONTRIBUTING.md)
 - [安全说明](SECURITY.md)
+
+## 网站（测试版）
+
+[https://booking.meiyh9924.xyz](https://booking.meiyh9924.xyz)
 
 ## License
 
