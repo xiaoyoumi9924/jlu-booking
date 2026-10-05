@@ -19,7 +19,6 @@
 | macOS | [下载 macOS 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-macOS.zip) | `JLU Booking.app` |
 | Linux | [下载 Linux 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Linux.tar.gz) | `JLU Booking` |
 
-也可以进入 [Releases 页面](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest) 查看最新版本和更新说明。
 
 ## 使用步骤
 
@@ -53,11 +52,11 @@ Linux：运行 `JLU Booking`
 
 </details>
 
-### 2. 第一次粘贴 Token
+### 2. 第一次粘贴网址
 
-在企业微信中登录学校体育场馆系统，然后在选择体育馆那个页面停下，点击右上方三个点，然后在浏览器中打开，复制一下网址，其实token就在网址中能体现出来。
+在企业微信中登录学校体育场馆系统，然后在选择体育馆那个页面停下，点击右上方三个点，然后在浏览器中打开，复制一下网址，网址中包含了自己的身份token。
 
-每位用户第一次使用时需要输入自己的 Token，并在“个人中心”中管理 Token 和同行人学工号。验证成功并保存后，程序会在当前电脑的用户配置目录中记住这两项，下次打开自动读取。
+每位用户第一次使用时需要输入自己的网址，并在“个人中心”中管理 Token 和同行人学工号。验证成功并保存后，程序会在当前电脑的用户配置目录中记住这两项，下次打开自动读取。
 
 ### 3. 配置并启动
 
@@ -74,13 +73,13 @@ Linux：运行 `JLU Booking`
 
 ### 4. 每天定时运行（可选）
 
-先在软件中保存一下预约配置，如果想要电脑每天早上 **07:27 自动启动预约任务**，可以按照自己的操作系统查看对应教程：
+首先请先下载并解压项目的[源码 ZIP](https://github.com/xiaoyoumi9924/jlu-booking/archive/refs/heads/main.zip)。，按照自己的操作系统查看对应教程：
 
 - [Windows 自动运行教程](docs/automation-windows.md)
 - [macOS 自动运行教程](docs/automation-macos.md)
 - [Linux 自动运行教程](docs/automation-linux.md)
 
-如果认为教程比较复杂，可以把文件交给 DeepSeek 或 ChatGPT，使用 AI 辅助完成部署。
+如果认为教程比较复杂，可以把源代码文件交给 DeepSeek 或 ChatGPT，使用 AI 辅助完成部署。
 
 ## 目前支持：
 
