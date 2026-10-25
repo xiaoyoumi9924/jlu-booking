@@ -179,6 +179,10 @@ def test_start_uses_direct_process_and_pumps_sanitized_log(
     assert captured["kwargs"]["shell"] is False
     assert captured["kwargs"]["stdin"] is subprocess.DEVNULL
     assert captured["kwargs"]["stderr"] is subprocess.STDOUT
+    expected_flags = (
+        getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    )
+    assert captured["kwargs"]["creationflags"] == expected_flags
     assert "private-token" not in launch.log_path.read_text(encoding="utf-8")
     assert "20260001" not in launch.log_path.read_text(encoding="utf-8")
     assert running.poll() == 0

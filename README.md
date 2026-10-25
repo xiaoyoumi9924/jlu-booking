@@ -11,11 +11,14 @@
 
 ## 立即下载
 
-| 系统 | 下载 | 解压后打开 |
+| 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows | [下载 Windows 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Windows.zip) | `JLU Booking.exe` |
-| macOS | [下载 macOS 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-macOS.zip) | `JLU Booking.app` |
-| Linux | [下载 Linux 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Linux.tar.gz) | `JLU Booking` |
+| Windows（推荐） | [下载 Windows 安装包](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/JLU-Booking-Setup.exe) | 双击安装，自动创建桌面快捷方式 |
+| Windows 便携版 | [下载 Windows ZIP](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Windows.zip) | 解压全部文件后打开 `JLU Booking.exe` |
+| macOS | [下载 macOS 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-macOS.zip) | 解压后打开 `JLU Booking.app` |
+| Linux | [下载 Linux 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Linux.tar.gz) | 解压后运行 `JLU Booking` |
+
+Windows 推荐直接下载 **JLU-Booking-Setup.exe**：不需要解压，安装完成后桌面会出现 `JLU Booking` 快捷方式，以后双击快捷方式即可打开。只有使用便携版 ZIP 时才需要先解压整个文件夹，不能只把 `JLU Booking.exe` 单独拿出来运行。
 
 也可以进入 [Releases 页面](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest) 查看最新版本和更新说明。
 
@@ -25,7 +28,7 @@
 
 ### 1. 打开程序
 
-Windows：双击 `JLU Booking.exe`<br>
+Windows：双击安装包，按提示完成安装；桌面上的 `JLU Booking` 快捷方式会自动创建，双击即可打开。<br>
 macOS：双击 `JLU Booking.app`<br>
 Linux：运行 `JLU Booking`
 
@@ -52,6 +55,13 @@ Linux：运行 `JLU Booking`
 | Linux | `start.sh` | 在终端中运行 `bash start.sh` |
 
 </details>
+
+#### Windows 下载后打不开？
+
+1. 请优先使用 `JLU-Booking-Setup.exe` 安装包，不要直接双击 ZIP 压缩包里的程序。
+2. 如果 Windows 提示“已保护你的电脑”，点击 **更多信息 → 仍要运行**。
+3. 如果仍然没有窗口，打开 `%LOCALAPPDATA%\jlu-booking\local` 文件夹，把 `local.log` 和 `startup-error.log` 发给开发者，日志里会记录具体原因。
+
 
 ### 2. 第一次粘贴场馆系统网址
 

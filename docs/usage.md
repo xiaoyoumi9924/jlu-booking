@@ -8,7 +8,9 @@
 
 ### 1.1 桌面安装包（推荐）
 
-从项目 Releases 下载与你系统对应的产物，解压后双击 JLU Booking。桌面安装包已经包含 Python 和依赖，不需要执行下面的虚拟环境命令。
+Windows 请从项目 Releases 下载 `JLU-Booking-Setup.exe`，双击后按提示安装。安装包默认装到当前用户的 `%LOCALAPPDATA%\Programs\JLU Booking`，不需要解压，并会自动创建桌面快捷方式；以后双击桌面的 `JLU Booking` 即可打开。安装包已经包含 Python 和依赖。
+
+macOS 和 Linux 仍然下载对应的压缩包，解压后打开 `JLU Booking.app` 或运行 `JLU Booking`。Windows 便携版 ZIP 必须解压全部文件后再运行，不能只取出 `JLU Booking.exe`。
 
 如果使用源码 ZIP，在安装 Python 3.10+ 后可以直接双击仓库根目录的 `start.bat`（Windows）、`start.command`（macOS）或 `start.sh`（Linux）。首次运行会自动创建 `.venv` 并安装本项目，后续直接打开 GUI。
 
@@ -354,6 +356,14 @@ python3 -m tkinter
 ```
 
 如果当前是 SSH 或没有桌面环境的服务器，不应启动 GUI；请直接使用 `jlu-booking-auto`。
+
+### Windows 双击后没有窗口
+
+优先使用 `JLU-Booking-Setup.exe` 安装包，它会安装完整目录并创建桌面快捷方式。若 Windows 弹出“已保护你的电脑”，点击 **更多信息 → 仍要运行**。
+
+使用便携版 ZIP 时，必须先把 ZIP 完整解压，再运行文件夹里的 `JLU Booking.exe`；直接在压缩包里双击，或只复制出 exe 而漏掉 `_internal` 文件夹，都会打不开。
+
+如果仍然没有窗口，打开 `%LOCALAPPDATA%\jlu-booking\local`（可在资源管理器地址栏直接粘贴），把 `local.log` 和 `startup-error.log` 发给开发者。新版会把启动失败原因写入这两个文件。
 
 ### Windows 上 Logo 没有显示或界面字体异常
 

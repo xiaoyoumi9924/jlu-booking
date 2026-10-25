@@ -20,7 +20,20 @@ def _run_legacy_gui() -> None:
     root.mainloop()
 
 
+def _load_streams_helper():
+    if not __package__:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from jlu_booking.streams import ensure_standard_streams
+    else:
+        from .streams import ensure_standard_streams
+    return ensure_standard_streams
+
+
 def main(argv=None):
+    # Packaged Windows builds use the windowed bootloader, so sys.stdout and
+    # sys.stderr are None.  Make print/logging safe before dispatching.
+    _load_streams_helper()()
+
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["--auto-worker"]:
         if not __package__:

@@ -218,6 +218,11 @@ class WorkerAdapter:
             pass
 
     def start(self, launch: WorkerLaunch) -> RunningWorker:
+        # A console helper executable must not flash a console window when it
+        # is launched by the windowed desktop app.
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        )
         process = subprocess.Popen(
             list(launch.command),
             shell=False,
@@ -229,6 +234,7 @@ class WorkerAdapter:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
+            creationflags=creationflags,
         )
         if process.stdout is None:  # defensive: PIPE above must provide it
             process.kill()

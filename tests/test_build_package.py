@@ -39,3 +39,41 @@ def test_web_templates_and_static_assets_are_packaged():
     assert (root / "jlu_booking/web/static/JLU_LOGO.png").read_bytes() == (
         root / "assets/JLU_LOGO.png"
     ).read_bytes()
+
+
+def test_windows_bundle_has_icon_and_console_worker():
+    root = Path(__file__).resolve().parent.parent
+    spec = (root / "packaging/jlu-booking.spec").read_text(encoding="utf-8")
+
+    assert (root / "assets/JLU_LOGO.ico").is_file()
+    assert "JLU_LOGO.ico" in spec
+    assert 'name="JLU Booking Worker"' in spec
+    assert 'worker_options["console"] = True' in spec
+
+
+def test_windows_installer_creates_a_desktop_shortcut():
+    root = Path(__file__).resolve().parent.parent
+    installer = (root / "packaging/windows-installer.iss").read_text(
+        encoding="utf-8"
+    )
+
+    assert "OutputBaseFilename=JLU-Booking-Setup" in installer
+    assert "PrivilegesRequired=lowest" in installer
+    assert 'Name: "desktopicon"' in installer
+    assert 'Name: "{autodesktop}' in installer
+    assert 'Tasks: desktopicon' in installer
+    assert 'Source: "..\\dist\\JLU Booking\\*"' in installer
+
+
+def test_windows_version_metadata_matches_package():
+    root = Path(__file__).resolve().parent.parent
+    version_info = (root / "packaging/windows-version-info.txt").read_text(
+        encoding="utf-8"
+    )
+    installer = (root / "packaging/windows-installer.iss").read_text(
+        encoding="utf-8"
+    )
+
+    assert f"StringStruct('FileVersion', '{__version__}')" in version_info
+    assert f"StringStruct('ProductVersion', '{__version__}')" in version_info
+    assert f'#define MyAppVersion "{__version__}"' in installer
