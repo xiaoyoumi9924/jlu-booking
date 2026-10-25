@@ -72,11 +72,16 @@ def web(tmp_path):
     connection.close()
 
 
-def _register(client, username="alice", password="long password value"):
+def _register(client, username="alice", password="long password value", invite_code="666666"):
     csrf = _csrf(client.get("/register"))
     return client.post(
         "/register",
-        data={"username": username, "password": password, "csrf_token": csrf},
+        data={
+            "username": username,
+            "password": password,
+            "invite_code": invite_code,
+            "csrf_token": csrf,
+        },
         follow_redirects=False,
     )
 
@@ -131,6 +136,39 @@ def test_disabled_login_does_not_offer_password_reset(web):
     assert response.status_code == 400
     assert DISABLED_LOGIN_MESSAGE in response.text
     assert "忘记密码" not in response.text
+
+
+def test_registration_requires_the_shared_invite_code(web):
+    client, services = web
+    page = client.get("/register")
+    missing = client.post("/register", data={
+        "username": "alice",
+        "password": "long password value",
+        "csrf_token": _csrf(page),
+    })
+    assert missing.status_code == 400
+    assert "邀请码无效" in missing.text
+    assert services.accounts.find_by_username("alice") is None
+
+    page = client.get("/register")
+    wrong = client.post("/register", data={
+        "username": "alice",
+        "password": "long password value",
+        "invite_code": "123456",
+        "csrf_token": _csrf(page),
+    })
+    assert wrong.status_code == 400
+    assert services.accounts.find_by_username("alice") is None
+
+    page = client.get("/register")
+    accepted = client.post("/register", data={
+        "username": "alice",
+        "password": "long password value",
+        "invite_code": "666666",
+        "csrf_token": _csrf(page),
+    }, follow_redirects=False)
+    assert accepted.status_code == 303
+    assert services.accounts.find_by_username("alice").status == "pending_token"
 
 
 def test_registration_login_and_pending_profile_redirect(web):

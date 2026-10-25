@@ -23,6 +23,21 @@ from ..dependencies import (
 
 router = APIRouter()
 
+# Shared registration invite code. Change it here to rotate the code.
+REGISTRATION_INVITE_CODE = "666666"
+
+
+def _register_error(request: Request, message: str, username: str):
+    token = anonymous_csrf(request)
+    response = _templates(request).TemplateResponse(
+        request=request,
+        name="register.html",
+        context={"csrf_token": token, "error": message, "username": username},
+        status_code=400,
+    )
+    _set_form_csrf(request, response, token)
+    return response
+
 
 def _templates(request: Request):
     return request.app.state.templates
@@ -59,7 +74,7 @@ async def register_page(request: Request):
     response = _templates(request).TemplateResponse(
         request=request,
         name="register.html",
-        context={"csrf_token": token, "error": None},
+        context={"csrf_token": token, "error": None, "username": ""},
     )
     _set_form_csrf(request, response, token)
     return response
@@ -70,9 +85,14 @@ async def register(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    invite_code: str = Form(""),
     csrf_token: str = Form(""),
 ):
     require_csrf(request, csrf_token)
+    if invite_code.strip() != REGISTRATION_INVITE_CODE:
+        return _register_error(
+            request, "邀请码无效，请联系管理员 fxyf00@qq.com。", username
+        )
     try:
         await request.app.state.services.accounts.register_pending_async(
             username,
@@ -81,15 +101,7 @@ async def register(
             now=now_beijing(),
         )
     except (AccountError, ValueError) as exc:
-        token = anonymous_csrf(request)
-        response = _templates(request).TemplateResponse(
-            request=request,
-            name="register.html",
-            context={"csrf_token": token, "error": str(exc)},
-            status_code=400,
-        )
-        _set_form_csrf(request, response, token)
-        return response
+        return _register_error(request, str(exc), username)
     return RedirectResponse("/login", 303)
 
 

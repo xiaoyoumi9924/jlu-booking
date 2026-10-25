@@ -252,7 +252,7 @@ def test_full_browser_workflow_uses_only_fake_school_functions(harness, monkeypa
         register = client.get("/register")
         created = client.post("/register", data={
             "username": "smokeuser", "password": "correct horse battery staple",
-            "csrf_token": _csrf(register.text),
+            "invite_code": "666666", "csrf_token": _csrf(register.text),
         }, follow_redirects=False)
         assert created.status_code == 303
         login = client.get("/login")
