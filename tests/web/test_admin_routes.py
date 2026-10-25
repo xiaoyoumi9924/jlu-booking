@@ -365,6 +365,23 @@ def test_password_reset_endpoint_refuses_admin_target(web):
     assert owner.id != second.id
 
 
+def test_admin_stats_chart_is_csp_safe_and_renders_bars(web):
+    client, services = web
+    _admin_login(client, services)
+    page = client.get("/admin/stats")
+    assert page.status_code == 200
+    assert "style-src 'self'" in page.headers["content-security-policy"]
+    # CSP blocks inline style attributes, so bar geometry must use SVG attributes.
+    assert 'style="' not in page.text
+    assert page.text.count('class="admin-stats-bar"') == 7
+    assert "<rect" in page.text
+
+
+def test_admin_facts_layout_overrides_generic_definition_grid():
+    css = (Path(__file__).parents[2] / "jlu_booking/web/static/app.css").read_text()
+    assert ".admin-v8-facts { display: block;" in css
+
+
 def test_admin_task_detail_shows_sanitized_result_and_log(web):
     client, services = web
     user = _create_active(services)

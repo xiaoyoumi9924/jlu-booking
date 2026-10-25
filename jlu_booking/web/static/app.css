@@ -756,10 +756,12 @@ body:has(.admin-nav) { background: #f2f7ff; }
 .admin-v8-user-head > .badge { margin-left: auto; }
 .admin-v8-avatar { display: grid; place-items: center; width: 52px; height: 52px; flex: 0 0 52px; border-radius: 50%; background: #e7f1ff; color: #1969d0; }
 .admin-v8-avatar .ui-icon { width: 27px; height: 27px; }
-.admin-v8-facts { margin: 0 18px 18px; }
-.admin-v8-facts > div { display: flex; justify-content: space-between; gap: 15px; padding: 14px 6px; border-top: 1px solid #e7eef9; font-size: .82rem; }
-.admin-v8-facts dt { color: #687c98; }
-.admin-v8-facts dd { margin: 0; color: #19345f; font-weight: 700; text-align: right; }
+/* The facts list wraps each pair in a div, so it must not inherit the global
+   two-column `dl` grid used by label/value definition lists. */
+.admin-v8-facts { display: block; margin: 0 18px 18px; }
+.admin-v8-facts > div { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding: 14px 6px; border-top: 1px solid #e7eef9; font-size: .82rem; }
+.admin-v8-facts dt { flex: 0 0 auto; color: #687c98; }
+.admin-v8-facts dd { min-width: 0; margin: 0; color: #19345f; font-weight: 700; text-align: right; overflow-wrap: anywhere; }
 .admin-v8-info-row { display: flex; align-items: center; gap: 12px; margin: 0 18px 12px; padding: 14px; border: 1px solid #e1eafa; border-radius: 10px; background: #fbfdff; }
 .admin-v8-info-row > div { display: grid; gap: 4px; }
 .admin-v8-info-row strong { color: #173665; font-size: .85rem; }
@@ -768,8 +770,7 @@ body:has(.admin-nav) { background: #f2f7ff; }
 .admin-v8-bars > div, .admin-v8-distribution > div { display: grid; grid-template-columns: 60px 1fr 35px; align-items: center; gap: 12px; color: #526889; font-size: .8rem; }
 .admin-v8-distribution > div { grid-template-columns: 75px 1fr 35px; }
 .admin-v8-bar-track { position: relative; height: 13px; border-radius: 20px; overflow: hidden; background: #eaf0fa; }
-.admin-v8-bar-track i, .admin-v8-bar-track b { position: absolute; inset: 0 auto 0 0; display: block; background: #3c88ee; }
-.admin-v8-bar-track b { background: #14ad78; }
+.admin-v8-bar-track svg { display: block; width: 100%; height: 100%; }
 .admin-v8-feed { display: grid; padding: 0 18px 17px; }
 .admin-v8-feed a { display: grid; gap: 5px; padding: 12px 0; border-top: 1px solid #e7eef9; color: #205caa; text-decoration: none; font-size: .83rem; font-weight: 700; }
 .admin-v8-feed small { color: #73849d; font-weight: 400; }
@@ -814,7 +815,7 @@ body:has(.admin-nav) { background: #f2f7ff; }
 .admin-stats-day { display: flex; flex: 1 0 46px; min-width: 46px; flex-direction: column; align-items: center; gap: 8px; color: #52688a; font-size: .75rem; }
 .admin-stats-value { color: #1c3564; font-weight: 750; }
 .admin-stats-column { display: flex; align-items: flex-end; width: 100%; height: 190px; border-bottom: 1px solid #bfd0e8; background: repeating-linear-gradient(to top, transparent 0, transparent 37px, #e5edf9 38px); }
-.admin-stats-column i { display: block; width: 100%; min-height: 0; border-radius: 5px 5px 0 0; background: linear-gradient(#4d98ff, #246cda); }
+.admin-stats-column svg { display: block; }
 .admin-stats-distribution { padding: 9px 21px 23px; }
 .admin-stats-distribution-head { display: flex; justify-content: space-between; padding: 5px 0 12px; border-bottom: 1px solid #e5edf9; color: #657b9a; font-size: .77rem; }
 .admin-stats-sport { display: grid; grid-template-columns: minmax(68px, auto) 1fr 35px; align-items: center; gap: 13px; min-height: 54px; color: #2b466b; font-size: .85rem; }

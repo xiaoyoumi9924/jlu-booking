@@ -16,8 +16,31 @@
   <div class="admin-stats-metric"><span class="admin-v7-metric-icon is-orange"><svg class="ui-icon" aria-hidden="true"><use href="#icon-activity"/></svg></span><div><small>成功率</small><strong data-stat="success-rate">{{ success_rate }}%</strong></div></div>
 </div>
 <div class="admin-stats-main">
-  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>{{ '近7天' if daily|length == 7 else '所选日期' }}任务创建趋势</h2><p>按所选日期范围，展示每日创建的任务数量</p></div></div><div class="admin-stats-chart" role="img" aria-label="每日任务创建数量：{% for day, count in daily.items() %}{{ day }} {{ count }} 个；{% endfor %}">{% for day, count in daily.items() %}<div class="admin-stats-day"><span class="admin-stats-value">{{ count }}</span><div class="admin-stats-column"><i style="height: {{ (count / max_daily * 100)|round }}%"></i></div><span>{{ day[5:] }}</span></div>{% endfor %}</div></section>
-  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>项目分布</h2><p>按任务数量统计各项目的分布情况</p></div></div><div class="admin-stats-distribution"><div class="admin-stats-distribution-head"><span>项目</span><span>任务数量</span></div>{% for item in sports %}<div class="admin-stats-sport"><span>{{ item.sport }}</span><div class="admin-v8-bar-track"><i style="width: {{ (item.total / sports[0].total * 100)|round }}%"></i></div><strong>{{ item.total }}</strong></div>{% else %}<p class="admin-empty">所选范围内暂无任务</p>{% endfor %}</div></section>
+  <section class="admin-v8-card">
+    <div class="admin-v8-card-head"><div><h2>{{ '近7天' if daily|length == 7 else '所选日期' }}任务创建趋势</h2><p>按所选日期范围，展示每日创建的任务数量</p></div></div>
+    <div class="admin-stats-chart" role="img" aria-label="每日任务创建数量：{% for day, count in daily.items() %}{{ day }} {{ count }} 个；{% endfor %}">
+      {% for day, count in daily.items() %}
+      {% set percent = (count / max_daily * 100)|round|int %}
+      <div class="admin-stats-day">
+        <span class="admin-stats-value">{{ count }}</span>
+        <div class="admin-stats-column">
+          <svg class="admin-stats-bar" width="100%" height="100%" aria-hidden="true" focusable="false">{% if loop.first %}<defs><linearGradient id="admin-bar-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4d98ff"></stop><stop offset="1" stop-color="#246cda"></stop></linearGradient></defs>{% endif %}<rect x="0" y="{{ 100 - percent }}%" width="100%" height="{{ percent }}%" rx="4" fill="url(#admin-bar-fill)"></rect></svg>
+        </div>
+        <span>{{ day[5:] }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  <section class="admin-v8-card">
+    <div class="admin-v8-card-head"><div><h2>项目分布</h2><p>按任务数量统计各项目的分布情况</p></div></div>
+    <div class="admin-stats-distribution">
+      <div class="admin-stats-distribution-head"><span>项目</span><span>任务数量</span></div>
+      {% for item in sports %}
+      {% set percent = (item.total / sports[0].total * 100)|round|int %}
+      <div class="admin-stats-sport"><span>{{ item.sport }}</span><div class="admin-v8-bar-track"><svg class="admin-v8-bar" width="100%" height="100%" aria-hidden="true" focusable="false"><rect x="0" y="0" width="{{ percent }}%" height="100%" fill="#3c88ee"></rect></svg></div><strong>{{ item.total }}</strong></div>
+      {% else %}<p class="admin-empty">所选范围内暂无任务</p>{% endfor %}
+    </div>
+  </section>
 </div>
 <section class="admin-v8-card admin-stats-users"><div class="admin-v8-card-head"><div><h2>活跃用户统计</h2><p>按任务数量倒序展示创建任务较多的用户</p></div></div><div class="table-wrap"><table class="admin-v8-table"><thead><tr><th scope="col">#</th><th scope="col">用户名</th><th scope="col">任务数量</th></tr></thead><tbody>{% for item in active_users %}<tr data-active-user="{{ item.username }}"><td><span class="admin-stats-rank">{{ loop.index }}</span></td><td>{{ item.username }}</td><td>{{ item.total }}</td></tr>{% else %}<tr><td colspan="3" class="admin-empty">所选范围内暂无用户任务</td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}
