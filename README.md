@@ -13,8 +13,7 @@
 
 | 系统 | 下载 | 打开方式 |
 | --- | --- | --- |
-| Windows（推荐） | [下载 Windows 安装包](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/JLU-Booking-Setup.exe) | 双击安装，自动创建桌面快捷方式 |
-| Windows 便携版 | [下载 Windows ZIP](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Windows.zip) | 解压全部文件后打开 `JLU Booking.exe` |
+| Windows| [下载 Windows 安装包](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/JLU-Booking-Setup.exe) | 双击安装，自动创建桌面快捷方式 |
 | macOS | [下载 macOS 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-macOS.zip) | 解压后打开 `JLU Booking.app` |
 | Linux | [下载 Linux 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Linux.tar.gz) | 解压后运行 `JLU Booking` |
 
