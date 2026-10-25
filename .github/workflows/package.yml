@@ -111,6 +111,48 @@ jobs:
           if (-not (Test-Path 'dist\JLU-Booking-Setup.exe')) {
             throw 'Installer was not created.'
           }
+      - name: Verify Windows installer creates a desktop shortcut
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $PWD 'dist\JLU-Booking-Setup.exe'
+          $installDir = Join-Path $env:LOCALAPPDATA 'Programs\JLU Booking'
+          $desktop = [Environment]::GetFolderPath('Desktop')
+          $shortcutPath = Join-Path $desktop 'JLU Booking.lnk'
+          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
+          if (Test-Path $shortcutPath) { Remove-Item -Force $shortcutPath }
+
+          $install = Start-Process -FilePath $installer `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-' `
+            -PassThru -Wait
+          if ($install.ExitCode -ne 0) {
+            throw "Installer exited with $($install.ExitCode)."
+          }
+          foreach ($name in 'JLU Booking.exe', 'JLU Booking Worker.exe') {
+            if (-not (Test-Path (Join-Path $installDir $name))) {
+              throw "Installed file is missing: $name"
+            }
+          }
+          if (-not (Test-Path $shortcutPath)) {
+            throw 'Installer did not create a desktop shortcut.'
+          }
+          $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+          $expectedTarget = Join-Path $installDir 'JLU Booking.exe'
+          if ($shortcut.TargetPath -ne $expectedTarget) {
+            throw "Desktop shortcut target is wrong: $($shortcut.TargetPath)"
+          }
+          Write-Host 'Installer created the desktop shortcut with the expected target.'
+
+          $uninstaller = Join-Path $installDir 'unins000.exe'
+          if (Test-Path $uninstaller) {
+            $uninstall = Start-Process -FilePath $uninstaller `
+              -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' `
+              -PassThru -Wait
+            if ($uninstall.ExitCode -ne 0) {
+              throw "Uninstaller exited with $($uninstall.ExitCode)."
+            }
+          }
       - if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path 'dist/JLU Booking' -DestinationPath 'jlu-booking-Windows.zip'
