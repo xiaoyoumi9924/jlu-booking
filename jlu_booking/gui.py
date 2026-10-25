@@ -18,7 +18,7 @@ if __package__:
     from .token_store import (
         TokenStoreError,
         clear_saved_token,
-        extract_token_input,
+        extract_identity_url,
         resolve_token,
         save_token,
     )
@@ -39,7 +39,7 @@ else:
     from jlu_booking.token_store import (
         TokenStoreError,
         clear_saved_token,
-        extract_token_input,
+        extract_identity_url,
         resolve_token,
         save_token,
     )
@@ -115,6 +115,13 @@ class BookingApp:
     SIDEBAR_WIDTH = 264
     MAIN_WINDOW_WIDTH = 1400
     MAIN_WINDOW_HEIGHT = 900
+    IDENTITY_URL_PROMPT = (
+        "请粘贴学校体育场馆系统“选择体育馆”页面的完整网址。\n\n"
+        "获取方法：企业微信登录场馆系统 → 在选择体育馆页面，\n"
+        "点击右上角“…” → 在浏览器中打开 → 复制地址栏网址。\n\n"
+        "程序会从网址中的 userId 自动识别预约身份，\n"
+        "向学校系统验证成功后才保存到本机，下次打开自动读取。"
+    )
 
     def __init__(self, root):
         self.root = root
@@ -305,7 +312,7 @@ class BookingApp:
             "TkTooltipFont",
         ):
             try:
-                tkfont.nametofont(name, root=self.root).configure(family=self.FONT)
+                tkfont.nametofont(name, root=self.root).configure(family=self.FONT, size=12)
             except tk.TclError:
                 continue
 
@@ -354,26 +361,20 @@ class BookingApp:
             if not candidate:
                 if not prompt:
                     return None
-                raw_token = simpledialog.askstring(
-                    "设置登录 Token",
-                    (
-                        "请粘贴 Token，或者直接粘贴包含 token=... 的完整请求地址。\n\n"
-                        "获取方法：登录学校场馆系统 → 打开浏览器开发者工具 "
-                        "Network → 查询一次场地 → 找到 easyserpClient 请求。\n\n"
-                        "提交后程序会先向学校系统验证；只有有效 Token 才会保存到"
-                        "当前用户的本机配置目录，下次打开会自动读取。"
-                    ),
+                identity_url = simpledialog.askstring(
+                    "设置预约身份",
+                    self.IDENTITY_URL_PROMPT,
                     show="*",
                     parent=dialog_parent,
                 )
-                if raw_token is None:
+                if identity_url is None:
                     return None
                 try:
-                    candidate = extract_token_input(raw_token)
+                    candidate = extract_identity_url(identity_url)
                 except ValueError as exc:
                     messagebox.showwarning(
-                        "Token 格式不正确",
-                        f"{exc}\n\n请重新输入有效的 Token。",
+                        "网址格式不正确",
+                        str(exc),
                         parent=dialog_parent,
                     )
                     candidate = ""
@@ -384,14 +385,14 @@ class BookingApp:
             except Exception:
                 validation = None
 
-            if validation is None or validation.status == "unavailable":
+            if validation is None or validation.status not in {"valid", "invalid", "account_blocked"}:
                 self.token_validated = False
                 messagebox.showwarning(
-                    "Token 暂时无法验证",
+                    "身份暂时无法验证",
                     (
                         "学校服务器或网络暂时不可用，"
-                        "无法判断 Token 是否有效。\n\n"
-                        "本机已保存的 Token 没有被修改，请稍后重试。"
+                        "无法判断预约身份是否有效。\n\n"
+                        "本机已保存的身份没有被修改，请稍后重试。"
                     ),
                     parent=dialog_parent,
                 )
@@ -400,17 +401,26 @@ class BookingApp:
             if validation.status == "invalid":
                 self.token_validated = False
                 messagebox.showerror(
-                    "Token 验证未通过",
+                    "身份验证未通过",
                     (
-                        "学校系统明确表示这个 Token 已失效。\n\n"
-                        "请重新登录学校场馆系统并输入新 Token；"
-                        "新 Token 验证成功前不会覆盖原文件。"
+                        "学校系统未接受这个预约身份，可能已失效或过期。\n\n"
+                        "请重新登录学校场馆系统并复制新的完整网址；"
+                        "验证成功前不会覆盖原身份。"
                     ),
                     parent=dialog_parent,
                 )
                 candidate = ""
                 entered_now = False
                 continue
+
+            if validation.status == "account_blocked":
+                self.token_validated = False
+                messagebox.showerror(
+                    "身份不可用",
+                    "学校系统提示此账号受限，无法用于预约；本机已保存的身份没有被修改。",
+                    parent=dialog_parent,
+                )
+                return None
 
             self.token = candidate
             self.token_validated = True
@@ -423,10 +433,10 @@ class BookingApp:
                 self.token_source = "saved"
             except (TokenStoreError, ValueError) as exc:
                 messagebox.showwarning(
-                    "Token 未能保存",
+                    "身份未能保存",
                     (
-                        "Token 已验证且本次可以使用，但未能保存到本机；"
-                        "关闭程序后需要重新输入。\n\n"
+                        "身份已验证且本次可以使用，但未能保存到本机；"
+                        "关闭程序后需要重新粘贴网址。\n\n"
                         f"{exc}"
                     ),
                     parent=dialog_parent,
@@ -442,11 +452,11 @@ class BookingApp:
             "欢迎使用 JLU Booking",
             (
                 "第一次使用只需完成两件事：\n\n"
-                "1. 粘贴自己的 Token 或完整请求地址\n"
+                "1. 粘贴学校场馆系统“选择体育馆”页面的完整网址\n"
                 "2. 在“启动预约”中选择目标并点击“立即启动预约”\n\n"
-                "验证成功后，Token 和同行人学工号会保存在当前用户的本机配置中，"
+                "验证成功后，预约身份和同行人学工号会保存在当前用户的本机配置中，"
                 "下次打开会自动读取。它们不会被打包进程序或上传到 GitHub。\n\n"
-                "是否现在设置 Token？"
+                "是否现在设置预约身份？"
             ),
             parent=self.root,
         )
@@ -564,14 +574,14 @@ class BookingApp:
         tk.Label(
             brand,
             text="吉林大学",
-            font=(self.FONT, 21, "bold"),
+            font=(self.FONT, 22, "bold"),
             fg="#FFFFFF",
             bg=self.COLOR_BLUE,
         ).pack(anchor="w", pady=(12, 1))
         tk.Label(
             brand,
             text="JILIN UNIVERSITY",
-            font=(self.FONT_LATIN, 9, "bold"),
+            font=(self.FONT_LATIN, 11, "bold"),
             fg="#C9D8F3",
             bg=self.COLOR_BLUE,
         ).pack(anchor="w")
@@ -589,14 +599,14 @@ class BookingApp:
         tk.Label(
             sidebar_footer,
             text="求实创新 · 励志图强",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg="#D5E1F5",
             bg=self.COLOR_BLUE,
         ).pack(anchor="w")
         tk.Label(
             sidebar_footer,
             text="场地数据以学校系统为准",
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg="#BED0EC",
             bg=self.COLOR_BLUE,
         ).pack(anchor="w", pady=(7, 0))
@@ -606,14 +616,14 @@ class BookingApp:
         tk.Label(
             row,
             text=title,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg="#A9C0E6",
             bg=self.COLOR_BLUE,
         ).pack(side="left")
         tk.Label(
             row,
             text=meta,
-            font=(self.FONT, 8, "bold"),
+            font=(self.FONT, 10, "bold"),
             fg="#B7CBEA",
             bg=self.COLOR_BLUE,
         ).pack(side="right")
@@ -652,7 +662,7 @@ class BookingApp:
                 "profile",
                 "person",
                 "个人中心",
-                "Token 与同行人",
+                "身份与同行人",
                 self.show_profile_page,
             ),
         )
@@ -707,7 +717,7 @@ class BookingApp:
         title_label = tk.Label(
             text_group,
             text=title,
-            font=(self.FONT, 11, "bold"),
+            font=(self.FONT, 13, "bold"),
             fg="#FFFFFF",
             bg=item_bg,
         )
@@ -758,7 +768,7 @@ class BookingApp:
         tk.Label(
             title_wrap,
             textvariable=self.main_subtitle_var,
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_BLUE_MID,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -766,7 +776,7 @@ class BookingApp:
         tk.Label(
             title_wrap,
             textvariable=self.main_title_var,
-            font=(self.FONT, 20, "bold"),
+            font=(self.FONT, 21, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(2, 0))
@@ -775,7 +785,7 @@ class BookingApp:
         self.top_status_label = tk.Label(
             topbar,
             textvariable=self.top_status_var,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_GREEN,
             bg=self.COLOR_GREEN_BG,
             padx=12,
@@ -801,14 +811,14 @@ class BookingApp:
         tk.Label(
             footer,
             textvariable=self.bottom_status_var,
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_BG,
         ).pack(side="left")
         tk.Label(
             footer,
             text="JLU VENUE · 场地查询与预约",
-            font=(self.FONT_LATIN, 8, "bold"),
+            font=(self.FONT_LATIN, 10, "bold"),
             fg=self.COLOR_MUTED,
             bg=self.COLOR_BG,
         ).pack(side="right")
@@ -866,7 +876,7 @@ class BookingApp:
         page = tk.Frame(self.content_host, bg=self.COLOR_BG, padx=28, pady=24)
         self.profile_page = page
         tk.Label(
-            page, text="预约必备信息", font=(self.FONT, 19, "bold"),
+            page, text="预约必备信息", font=(self.FONT, 20, "bold"),
             fg=self.COLOR_TEXT, bg=self.COLOR_BG,
         ).pack(anchor="w", pady=(0, 16))
         try:
@@ -883,8 +893,8 @@ class BookingApp:
             )
         )
         for icon, title, description, status_var, action, handler in (
-            ("↗", "JLU Token", "用于查询和提交预约", self.profile_token_status_var,
-             "更新 Token", self.start_profile_token_update),
+            ("↗", "预约身份", "粘贴场馆系统网址，验证后用于查询和预约", self.profile_token_status_var,
+             "更改身份", self.start_profile_token_update),
             ("♙", "同行人", "预约时使用已验证的同行人", self.profile_companion_status_var,
              "修改同行人", self.start_profile_companion_update),
         ):
@@ -897,20 +907,20 @@ class BookingApp:
             text_group = tk.Frame(card, bg=self.COLOR_CARD)
             text_group.pack(side="left", fill="x", expand=True)
             tk.Label(
-                text_group, text=title, font=(self.FONT, 15, "bold"),
+                text_group, text=title, font=(self.FONT, 16, "bold"),
                 fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
             ).pack(anchor="w")
             tk.Label(
-                text_group, text=description, font=(self.FONT, 9),
+                text_group, text=description, font=(self.FONT, 11),
                 fg=self.COLOR_SUBTEXT, bg=self.COLOR_CARD,
             ).pack(anchor="w", pady=(4, 0))
             tk.Label(
-                text_group, textvariable=status_var, font=(self.FONT, 10, "bold"),
+                text_group, textvariable=status_var, font=(self.FONT, 12, "bold"),
                 fg=self.COLOR_GREEN, bg=self.COLOR_CARD,
             ).pack(anchor="w", pady=(7, 0))
             button = tk.Label(
                 card, text=f"{action}  →",
-                font=(self.FONT, 10, "bold"), fg=self.COLOR_BLUE,
+                font=(self.FONT, 12, "bold"), fg=self.COLOR_BLUE,
                 bg=self.COLOR_BLUE_TINT, padx=13, pady=9,
                 cursor="hand2", takefocus=True,
             )
@@ -920,7 +930,7 @@ class BookingApp:
             button.bind("<space>", lambda _event, callback=handler: callback())
         tk.Label(
             page, text="信息只保存在本机；更改会在下次启动预约时使用。",
-            font=(self.FONT, 9), fg=self.COLOR_SUBTEXT, bg=self.COLOR_BG,
+            font=(self.FONT, 11), fg=self.COLOR_SUBTEXT, bg=self.COLOR_BG,
         ).pack(anchor="w", pady=(5, 0))
 
     def profile_token_status_text(self):
@@ -929,7 +939,7 @@ class BookingApp:
             return "未设置"
         environment_token = os.environ.get("JLU_BOOKING_TOKEN", "").strip()
         if environment_token and environment_token != token:
-            return "已保存新 Token；下次启动前还需更新环境变量"
+            return "已保存新身份；下次启动前还需更新环境变量"
         if self.token_source == "environment":
             return f"当前环境变量 · {self.mask_private_value(token)}"
         if self.token_source == "session":
@@ -938,17 +948,17 @@ class BookingApp:
 
     def start_profile_token_update(self):
         raw = simpledialog.askstring(
-            "更新 Token", "粘贴新的 JLU Token 或包含 token= 的请求地址：",
+            "更改身份", self.IDENTITY_URL_PROMPT,
             parent=self.root, show="*",
         )
         if raw is None:
             return
         try:
-            candidate = extract_token_input(raw)
+            candidate = extract_identity_url(raw)
         except ValueError as exc:
             self.profile_token_status_var.set(str(exc))
             return
-        self.profile_token_status_var.set("正在验证新 Token…")
+        self.profile_token_status_var.set("正在向学校系统验证新身份…")
         threading.Thread(
             target=self.run_profile_token_update, args=(candidate,), daemon=True,
         ).start()
@@ -963,8 +973,11 @@ class BookingApp:
     def complete_profile_token_update(self, candidate, validation):
         if validation is None or validation.status != "valid":
             self.profile_token_status_var.set(
-                "验证失败，原 Token 保持不变" if validation and validation.status == "invalid"
-                else "暂时无法验证，原 Token 保持不变"
+                "身份无效或已过期，请重新登录并复制网址；原身份保持不变"
+                if validation and validation.status == "invalid"
+                else "学校系统提示此账号受限，原身份保持不变"
+                if validation and validation.status == "account_blocked"
+                else "暂时无法验证，原身份保持不变"
             )
             return
         try:
@@ -1041,7 +1054,7 @@ class BookingApp:
         tk.Label(
             heading,
             text="快速查询",
-            font=(self.FONT, 14, "bold"),
+            font=(self.FONT, 15, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(side="left")
@@ -1049,7 +1062,7 @@ class BookingApp:
         tk.Label(
             heading,
             textvariable=self.query_venue_badge_var,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_BLUE,
             bg=self.COLOR_BLUE_TINT,
             padx=10,
@@ -1062,7 +1075,7 @@ class BookingApp:
         venue_group = tk.Frame(card, bg=self.COLOR_CARD)
         venue_group.pack(fill="x", pady=(0, 15))
         tk.Label(
-            venue_group, text="场馆", font=(self.FONT, 9, "bold"),
+            venue_group, text="场馆", font=(self.FONT, 11, "bold"),
             fg=self.COLOR_SUBTEXT, bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(0, 7))
         self.query_venue_buttons = {}
@@ -1083,7 +1096,7 @@ class BookingApp:
         tk.Label(
             sport_group,
             text="运动项目",
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(0, 7))
@@ -1101,7 +1114,7 @@ class BookingApp:
         tk.Label(
             date_group,
             text="查询日期",
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(0, 7))
@@ -1128,7 +1141,7 @@ class BookingApp:
         self.query_button = tk.Label(
             row,
             text="查询可预约场地  →",
-            font=(self.FONT, 11, "bold"),
+            font=(self.FONT, 13, "bold"),
             fg="#FFFFFF",
             bg=self.COLOR_BLUE,
             bd=0,
@@ -1180,7 +1193,7 @@ class BookingApp:
         tk.Label(
             title_wrap,
             text="可预约场地",
-            font=(self.FONT, 14, "bold"),
+            font=(self.FONT, 15, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -1188,7 +1201,7 @@ class BookingApp:
         tk.Label(
             title_wrap,
             textvariable=self.result_subtitle_var,
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(4, 0))
@@ -1196,7 +1209,7 @@ class BookingApp:
         self.clear_button = tk.Label(
             header,
             text="清空结果",
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CONTROL,
             bd=0,
@@ -1210,7 +1223,7 @@ class BookingApp:
         self.result_status_label = tk.Label(
             header,
             textvariable=self.summary_status_var,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_GREEN,
             bg=self.COLOR_GREEN_BG,
             padx=10,
@@ -1242,7 +1255,7 @@ class BookingApp:
         button = tk.Label(
             parent,
             text=text,
-            font=(self.FONT, 10),
+            font=(self.FONT, 12),
             bd=0,
             padx=14,
             pady=9,
@@ -1257,7 +1270,7 @@ class BookingApp:
         badge = tk.Label(
             card,
             text=icon_text,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_BLUE,
             bg=self.COLOR_BLUE_TINT,
             width=3,
@@ -1270,14 +1283,14 @@ class BookingApp:
         tk.Label(
             text_wrap,
             text=title,
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
         tk.Label(
             text_wrap,
             textvariable=value_var,
-            font=(self.FONT, 14, "bold"),
+            font=(self.FONT, 15, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(4, 0))
@@ -1361,13 +1374,13 @@ class BookingApp:
     def style_select_button(self, button, selected):
         if selected:
             button.configure(
-                font=(self.FONT, 10, "bold"),
+                font=(self.FONT, 12, "bold"),
                 fg=self.COLOR_BLUE,
                 bg=self.COLOR_BLUE_TINT,
             )
         else:
             button.configure(
-                font=(self.FONT, 10),
+                font=(self.FONT, 12),
                 fg=self.COLOR_SUBTEXT,
                 bg=self.COLOR_CONTROL,
             )
@@ -1502,7 +1515,7 @@ class BookingApp:
         tk.Label(
             row,
             text=f"{index + 1:02d}",
-            font=(self.FONT_LATIN, 10, "bold"),
+            font=(self.FONT_LATIN, 12, "bold"),
             fg=self.COLOR_BLUE,
             bg=self.COLOR_BLUE_TINT,
             width=4,
@@ -1514,14 +1527,14 @@ class BookingApp:
         tk.Label(
             name_wrap,
             text=court_name,
-            font=(self.FONT, 12, "bold"),
+            font=(self.FONT, 13, "bold"),
             fg=self.COLOR_TEXT,
             bg=row_bg,
         ).pack(anchor="w")
         tk.Label(
             name_wrap,
             text=f"{len(slots)} 个可预约时段",
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_SUBTEXT,
             bg=row_bg,
         ).pack(anchor="w", pady=(5, 0))
@@ -1541,7 +1554,7 @@ class BookingApp:
             chip = tk.Label(
                 time_area,
                 text=f"●  {start} – {end}",
-                font=(self.FONT_LATIN, 9, "bold"),
+                font=(self.FONT_LATIN, 11, "bold"),
                 fg=self.COLOR_GREEN,
                 bg=self.COLOR_GREEN_BG,
                 padx=11,
@@ -1661,7 +1674,7 @@ class BookingApp:
         tk.Label(
             header,
             text="预约场地",
-            font=(self.FONT, 19, "bold"),
+            font=(self.FONT, 20, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -1669,7 +1682,7 @@ class BookingApp:
         tk.Label(
             header,
             text="确认场地信息，并验证同行人身份",
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(5, 0))
@@ -1694,7 +1707,7 @@ class BookingApp:
         tk.Label(
             slot_card,
             text=self.selected_slot.get("venue", "未知场馆"),
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_BLUE_MID,
             bg=self.COLOR_BLUE_PALE,
         ).pack(anchor="w", pady=(0, 5))
@@ -1702,7 +1715,7 @@ class BookingApp:
         tk.Label(
             slot_card,
             text=self.selected_slot["court_name"],
-            font=(self.FONT, 15, "bold"),
+            font=(self.FONT, 16, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_BLUE_PALE,
         ).pack(anchor="w")
@@ -1714,7 +1727,7 @@ class BookingApp:
                 f"{self.selected_slot['start']} – "
                 f"{self.selected_slot['end']}"
             ),
-            font=(self.FONT_LATIN, 10, "bold"),
+            font=(self.FONT_LATIN, 12, "bold"),
             fg=self.COLOR_BLUE,
             bg=self.COLOR_BLUE_PALE,
         ).pack(anchor="w", pady=(7, 0))
@@ -1726,7 +1739,7 @@ class BookingApp:
         tk.Label(
             companion_wrap,
             text="同行人学工号",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -1734,7 +1747,7 @@ class BookingApp:
         tk.Label(
             companion_wrap,
             text="输入同行人的学工号后，程序会向学校系统查询并核验身份。",
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(5, 9))
@@ -1744,7 +1757,7 @@ class BookingApp:
 
         self.companion_entry = tk.Entry(
             input_row,
-            font=(self.FONT_LATIN, 11),
+            font=(self.FONT_LATIN, 13),
             fg=self.COLOR_TEXT,
             bg="#F8FAFD",
             insertbackground=self.COLOR_TEXT,
@@ -1777,7 +1790,7 @@ class BookingApp:
         self.verify_companion_button = tk.Label(
             input_row,
             text="验证同行人",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg="#FFFFFF",
             bg=self.COLOR_BLUE,
             padx=16,
@@ -1798,7 +1811,7 @@ class BookingApp:
         self.companion_status_label = tk.Label(
             companion_wrap,
             textvariable=self.companion_status_var,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CONTROL,
             anchor="w",
@@ -1814,7 +1827,7 @@ class BookingApp:
         self.booking_check_status_label = tk.Label(
             shell,
             textvariable=self.booking_check_status_var,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CONTROL,
             anchor="w",
@@ -1839,7 +1852,7 @@ class BookingApp:
         tk.Label(
             notice,
             text="当前阶段不会提交真实预约",
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg="#8A5A00",
             bg="#FFF8E8",
         ).pack(anchor="w")
@@ -1850,7 +1863,7 @@ class BookingApp:
                 "“检查能否预约”只调用 canBook 预约前检查接口，"
                 "不会调用 freeBuyPlace 创建预约。"
             ),
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg="#8A5A00",
             bg="#FFF8E8",
             wraplength=440,
@@ -1864,7 +1877,7 @@ class BookingApp:
         close_button = tk.Label(
             footer,
             text="关闭",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CONTROL,
             padx=18,
@@ -1880,7 +1893,7 @@ class BookingApp:
         self.booking_check_button = tk.Label(
             footer,
             text="检查能否预约",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg="#A7B0BF",
             bg="#E9EDF3",
             padx=20,
@@ -1896,7 +1909,7 @@ class BookingApp:
         self.real_booking_button = tk.Label(
             footer,
             text="确认真实预约",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg="#A7B0BF",
             bg="#E9EDF3",
             padx=20,
@@ -2628,7 +2641,7 @@ class BookingApp:
         tk.Label(
             venue_heading,
             text="当前场馆",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(side="left")
@@ -2637,14 +2650,14 @@ class BookingApp:
         tk.Label(
             venue_heading,
             textvariable=self.auto_venue_badge_var,
-            font=(self.FONT, 9, "bold"),
+            font=(self.FONT, 11, "bold"),
             fg="#FFFFFF",
             bg=self.COLOR_BLUE,
             padx=12,
             pady=6,
         ).pack(side="right")
         tk.Label(
-            card, text="场馆", font=(self.FONT, 10, "bold"),
+            card, text="场馆", font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
         ).pack(anchor="w")
         venue_row = tk.Frame(card, bg=self.COLOR_CARD)
@@ -2664,7 +2677,7 @@ class BookingApp:
         tk.Label(
             card,
             text="预约项目",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -2685,7 +2698,7 @@ class BookingApp:
         tk.Label(
             card,
             text="预约日期",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -2707,7 +2720,7 @@ class BookingApp:
         tk.Label(
             card,
             textvariable=self.auto_selection_summary_var,
-            font=(self.FONT, 8, "bold"),
+            font=(self.FONT, 10, "bold"),
             fg=self.COLOR_BLUE,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(0, 10))
@@ -2723,7 +2736,7 @@ class BookingApp:
         required_label = tk.Label(
             companion_col,
             text="同行人学工号  ·  必填",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_RED,
             bg=self.COLOR_CARD,
         )
@@ -2734,7 +2747,7 @@ class BookingApp:
         self.auto_companion_entry = tk.Entry(
             companion_col,
             textvariable=self.auto_companion_var,
-            font=(self.FONT, 11),
+            font=(self.FONT, 13),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CONTROL,
             insertbackground=self.COLOR_TEXT,
@@ -2754,7 +2767,7 @@ class BookingApp:
         self.auto_companion_status_label = tk.Label(
             companion_col,
             textvariable=self.auto_companion_status_var,
-            font=(self.FONT, 8),
+            font=(self.FONT, 10),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         )
@@ -2769,7 +2782,7 @@ class BookingApp:
         tk.Label(
             court_col,
             text="首选场地",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -2780,7 +2793,7 @@ class BookingApp:
             to=99,
             textvariable=self.auto_court_var,
             width=7,
-            font=(self.FONT, 11),
+            font=(self.FONT, 13),
             relief="flat",
             bg=self.COLOR_CONTROL,
             fg=self.COLOR_TEXT,
@@ -2793,7 +2806,7 @@ class BookingApp:
         tk.Label(
             court_col,
             text="例如 3 = 3号场",
-            font=(self.FONT, 8),
+            font=(self.FONT, 10),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -2802,7 +2815,7 @@ class BookingApp:
         tk.Label(
             card,
             text="重点时间（从上到下优先）",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
@@ -2825,14 +2838,14 @@ class BookingApp:
         tk.Label(
             card,
             text="运行模式",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w")
         tk.Label(
             card,
             text="请选择一种模式；真实预约命中目标后会直接向学校系统提交。",
-            font=(self.FONT, 8),
+            font=(self.FONT, 10),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack(anchor="w", pady=(4, 6))
@@ -2858,7 +2871,7 @@ class BookingApp:
         self.auto_mode_note_label = tk.Label(
             card,
             textvariable=self.auto_mode_note_var,
-            font=(self.FONT, 8, "bold"),
+            font=(self.FONT, 10, "bold"),
             fg=self.COLOR_GREEN,
             bg=self.COLOR_CARD,
         )
@@ -2869,7 +2882,7 @@ class BookingApp:
         self.auto_save_button = tk.Label(
             action_row,
             text="保存配置",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg="#FFFFFF",
             bg=self.COLOR_BLUE,
             padx=20,
@@ -2885,7 +2898,7 @@ class BookingApp:
         self.auto_start_button = tk.Label(
             action_row,
             text="立即启动预约",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg="#FFFFFF",
             bg=self.COLOR_GREEN,
             padx=20,
@@ -2901,7 +2914,7 @@ class BookingApp:
         self.auto_stop_button = tk.Label(
             action_row,
             text="停止任务",
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CONTROL,
             padx=16,
@@ -2928,7 +2941,7 @@ class BookingApp:
             checkbox = tk.Checkbutton(
                 row, variable=item["selected"],
                 text=f"{item['pair'][0]}—{item['pair'][1]}",
-                font=(self.FONT, 10, "bold"), fg=self.COLOR_TEXT,
+                font=(self.FONT, 12, "bold"), fg=self.COLOR_TEXT,
                 bg=self.COLOR_CONTROL, activebackground=self.COLOR_CONTROL,
                 selectcolor=self.COLOR_CARD, anchor="w",
                 state="disabled" if self.is_saving_auto_config else "normal",
@@ -2937,7 +2950,7 @@ class BookingApp:
             self.auto_time_controls.append(checkbox)
             for label, direction in (("↑", -1), ("↓", 1)):
                 button = tk.Button(
-                    row, text=label, font=(self.FONT, 12, "bold"),
+                    row, text=label, font=(self.FONT, 13, "bold"),
                     fg=self.COLOR_BLUE, bg=self.COLOR_CONTROL,
                     relief="flat", bd=0, cursor="hand2",
                     command=lambda i=index, d=direction: self.move_auto_time_row(i, d),
@@ -2962,7 +2975,7 @@ class BookingApp:
             parent,
             text=text,
             width=width,
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             bd=0,
             padx=8,
             pady=9,
@@ -3239,7 +3252,7 @@ class BookingApp:
             self.start_auto_booking(saved)
             return
         # 验证与保存成功只更新页面状态，不再用弹窗打断用户。
-        self.auto_status_var.set("配置已保存；Token 与同行人下次自动读取")
+        self.auto_status_var.set("配置已保存；身份与同行人下次自动读取")
 
     def auto_process_is_running(self):
         return self.auto_process is not None and self.auto_process.poll() is None
@@ -3437,7 +3450,7 @@ class BookingApp:
         ).pack(side="left")
         back_button = tk.Label(
             heading, text="← 返回",
-            font=(self.FONT, 11, "bold"), fg=self.COLOR_BLUE,
+            font=(self.FONT, 13, "bold"), fg=self.COLOR_BLUE,
             bg=self.COLOR_CARD, padx=16, pady=9,
             cursor="hand2", takefocus=True,
         )
@@ -3454,19 +3467,19 @@ class BookingApp:
         overview = self.create_card(columns, padx=22, pady=20)
         overview.grid(row=0, column=0, sticky="nsew", padx=(0, 9))
         tk.Label(
-            overview, text="任务概览", font=(self.FONT, 17, "bold"),
+            overview, text="任务概览", font=(self.FONT, 18, "bold"),
             fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
         ).pack(anchor="w")
         status_box = tk.Frame(overview, bg=self.COLOR_BLUE_TINT, padx=19, pady=18)
         status_box.pack(fill="x", pady=(18, 14))
         tk.Label(
             status_box, textvariable=self.auto_status_var,
-            font=(self.FONT, 19, "bold"), fg=self.COLOR_BLUE,
+            font=(self.FONT, 20, "bold"), fg=self.COLOR_BLUE,
             bg=self.COLOR_BLUE_TINT,
         ).pack(anchor="w")
         tk.Label(
             status_box, text="任务状态与运行进度显示在右侧日志。",
-            font=(self.FONT, 11), fg=self.COLOR_SUBTEXT,
+            font=(self.FONT, 13), fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_BLUE_TINT,
         ).pack(anchor="w", pady=(4, 0))
         target_date = date.today() + timedelta(days=config["target_day"] == "明天")
@@ -3487,11 +3500,11 @@ class BookingApp:
             row.pack(fill="x", pady=7)
             tk.Label(
                 row, text=label, width=11, anchor="w",
-                font=(self.FONT, 11), fg=self.COLOR_SUBTEXT,
+                font=(self.FONT, 13), fg=self.COLOR_SUBTEXT,
                 bg=self.COLOR_CARD,
             ).pack(side="left")
             tk.Label(
-                row, text=value, font=(self.FONT, 11, "bold"),
+                row, text=value, font=(self.FONT, 13, "bold"),
                 fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
                 wraplength=370, justify="left", anchor="w",
             ).pack(side="left", fill="x", expand=True)
@@ -3505,7 +3518,7 @@ class BookingApp:
         ):
             action = tk.Label(
                 buttons, text=label,
-                font=(self.FONT, 11, "bold"), fg=foreground,
+                font=(self.FONT, 13, "bold"), fg=foreground,
                 bg=background, padx=15, pady=10, cursor="hand2",
                 takefocus=True,
             )
@@ -3519,12 +3532,12 @@ class BookingApp:
         log_heading = tk.Frame(log_card, bg=self.COLOR_CARD)
         log_heading.pack(fill="x", pady=(0, 13))
         tk.Label(
-            log_heading, text="运行日志", font=(self.FONT, 17, "bold"),
+            log_heading, text="运行日志", font=(self.FONT, 18, "bold"),
             fg=self.COLOR_TEXT, bg=self.COLOR_CARD,
         ).pack(side="left")
         full_log_button = tk.Label(
             log_heading, text="全屏查看",
-            font=(self.FONT, 11, "bold"), fg=self.COLOR_BLUE,
+            font=(self.FONT, 13, "bold"), fg=self.COLOR_BLUE,
             bg=self.COLOR_CONTROL, padx=13, pady=8,
             cursor="hand2", takefocus=True,
         )
@@ -3538,7 +3551,7 @@ class BookingApp:
         )
         viewer.pack(fill="both", expand=True)
         log_text = tk.Text(
-            viewer, font=(self.FONT_MONO, 11), fg=self.COLOR_TEXT,
+            viewer, font=(self.FONT_MONO, 13), fg=self.COLOR_TEXT,
             bg="#F8FAFF", relief="flat", wrap="word", padx=15, pady=15,
             spacing1=2, spacing3=3,
             state="disabled",
@@ -3591,7 +3604,7 @@ class BookingApp:
         tk.Label(
             title_group,
             text="启动预约日志",
-            font=(self.FONT, 18, "bold"),
+            font=(self.FONT, 19, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_BG,
         ).pack(anchor="w")
@@ -3599,14 +3612,14 @@ class BookingApp:
         tk.Label(
             title_group,
             textvariable=self.auto_log_title_var,
-            font=(self.FONT, 10),
+            font=(self.FONT, 12),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_BG,
         ).pack(anchor="w", pady=(3, 0))
         tk.Label(
             heading,
             textvariable=self.auto_status_var,
-            font=(self.FONT, 10, "bold"),
+            font=(self.FONT, 12, "bold"),
             fg=self.COLOR_GREEN,
             bg=self.COLOR_GREEN_BG,
             padx=11,
@@ -3624,7 +3637,7 @@ class BookingApp:
             button = tk.Label(
                 navigation,
                 text=text_value,
-                font=(self.FONT, 10, "bold"),
+                font=(self.FONT, 12, "bold"),
                 cursor="hand2",
                 padx=13,
                 pady=7,
@@ -3647,7 +3660,7 @@ class BookingApp:
         viewer.grid_columnconfigure(0, weight=1)
         self.auto_log_text = tk.Text(
             viewer,
-            font=(self.FONT_MONO, 11),
+            font=(self.FONT_MONO, 13),
             fg=self.COLOR_TEXT,
             bg="#FFFFFF",
             relief="flat",
@@ -3698,7 +3711,7 @@ class BookingApp:
             button = tk.Label(
                 button_group,
                 text=text,
-                font=(self.FONT, 9, "bold"),
+                font=(self.FONT, 11, "bold"),
                 fg=foreground,
                 bg=background,
                 cursor="hand2",
@@ -3892,14 +3905,14 @@ class BookingApp:
         tk.Label(
             empty,
             text=title,
-            font=(self.FONT, 12, "bold"),
+            font=(self.FONT, 13, "bold"),
             fg=self.COLOR_TEXT,
             bg=self.COLOR_CARD,
         ).pack(pady=(7, 4))
         tk.Label(
             empty,
             text=detail,
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_SUBTEXT,
             bg=self.COLOR_CARD,
         ).pack()
@@ -3939,14 +3952,14 @@ class BookingApp:
         tk.Label(
             error_box,
             text="查询失败",
-            font=(self.FONT, 12, "bold"),
+            font=(self.FONT, 13, "bold"),
             fg=self.COLOR_RED,
             bg=self.COLOR_RED_BG,
         ).pack(anchor="w")
         tk.Label(
             error_box,
             text=error_message,
-            font=(self.FONT, 9),
+            font=(self.FONT, 11),
             fg=self.COLOR_RED,
             bg=self.COLOR_RED_BG,
             justify="left",
@@ -3956,7 +3969,7 @@ class BookingApp:
         self.summary_court_count_var.set("0")
         self.summary_slot_count_var.set("0")
         self.summary_status_var.set("查询失败")
-        self.result_subtitle_var.set("未能获取场馆数据，请检查网络或 Token")
+        self.result_subtitle_var.set("未能获取场馆数据，请检查网络或预约身份")
         self.bottom_status_var.set("查询失败")
         self.set_status("error")
         self.set_loading(False)

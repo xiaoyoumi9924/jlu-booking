@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jlu-booking"
-version = "2.5.0"
-description = "Cross-platform desktop and automatic booking helper for JLU sports venues"
+version = "2.6.0"
+description = "Cross-platform local Web workspace for JLU sports venue booking"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -37,12 +37,22 @@ web = [
   "python-multipart>=0.0.12,<1",
   "uvicorn>=0.30,<1",
 ]
+desktop = [
+  "argon2-cffi>=23.1,<26",
+  "cryptography>=43,<47",
+  "fastapi>=0.115,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.12,<1",
+  "pywebview>=6,<7",
+  "uvicorn>=0.30,<1",
+]
 
 [project.scripts]
 jlu-booking-auto = "jlu_booking.auto:main"
 jlu-booking-token = "jlu_booking.token_cli:main"
 jlu-booking-status = "jlu_booking.status_cli:main"
 jlu-booking-web = "jlu_booking.web.cli:main"
+jlu-booking-local = "jlu_booking.local.__main__:main"
 
 [project.gui-scripts]
 jlu-booking = "jlu_booking.__main__:main"

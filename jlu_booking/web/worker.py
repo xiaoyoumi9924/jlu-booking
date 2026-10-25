@@ -143,7 +143,7 @@ class WorkerAdapter:
             build_auto_worker_command(
                 real_booking_enabled=task.real_booking_enabled,
                 executable=self._python_executable,
-                frozen=False,
+                frozen=bool(getattr(sys, "frozen", False)),
             )
         )
         if task.start_mode == "immediate":

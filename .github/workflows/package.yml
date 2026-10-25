@@ -20,10 +20,17 @@ jobs:
           python-version: "3.13"
           cache: pip
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-tk
-      - run: python -m pip install -e ".[package]"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk libegl1 libgl1 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libnss3
+      - run: python -m pip install -e ".[package,desktop]"
+      - if: runner.os == 'Linux'
+        run: python -m pip install "pywebview[pyside6]>=6,<7"
       - run: python tools/privacy_check.py
       - run: python tools/build_package.py
+        env:
+          QT_QPA_PLATFORM: offscreen
       - if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path 'dist/JLU Booking' -DestinationPath 'jlu-booking-Windows.zip'

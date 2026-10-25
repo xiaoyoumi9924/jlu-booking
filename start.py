@@ -1,7 +1,7 @@
 """Beginner-friendly source launcher for JLU Booking.
 
-Double-click launchers call this file.  It creates an isolated environment,
-installs the local project when needed, and starts the GUI.
+Double-click launchers call this file. It creates an isolated environment,
+installs the local project when needed, and starts the desktop app.
 """
 
 from __future__ import annotations
@@ -31,19 +31,9 @@ def environment_is_ready(python: Path) -> bool:
         [
             str(python),
             "-c",
-            "import jlu_booking, platformdirs, requests",
+            "import jlu_booking, platformdirs, requests, fastapi, uvicorn, "
+            "jinja2, argon2, cryptography, multipart, webview",
         ],
-        cwd=PROJECT_DIR,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return result.returncode == 0
-
-
-def tkinter_is_ready(python: Path) -> bool:
-    result = subprocess.run(
-        [str(python), "-c", "import tkinter"],
         cwd=PROJECT_DIR,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -71,14 +61,8 @@ def prepare_environment() -> Path:
                 "install",
                 "--disable-pip-version-check",
                 "-e",
-                str(PROJECT_DIR),
+                f"{PROJECT_DIR}[desktop]",
             ]
-        )
-
-    if not tkinter_is_ready(python):
-        raise RuntimeError(
-            "当前 Python 缺少 Tkinter 图形组件。Linux 用户请先按 "
-            "docs/linux.md 安装 python3-tk；Windows/macOS 建议使用 Python 官网安装包。"
         )
 
     return python

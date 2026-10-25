@@ -75,6 +75,7 @@ th, td { text-align: left; padding: 10px; border-bottom: 1px solid #E1E7F0; vert
 .workspace-account span { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
 .workspace-account form { display: block; }
 .workspace-account button { min-height: 32px; padding: 5px 9px; background: #eaf1ff; color: #144399; border-radius: 0; font-size: .76rem; white-space: nowrap; }
+.workspace-local-badge { flex: 0 0 auto; padding: 4px 9px; border: 1px solid #6f97d5; color: #dce9ff; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }
 .workspace-motto { display: grid; gap: 8px; }
 .workspace-motto span { color: #bed0ec; font-size: .72rem; }
 body:has(.workspace-nav) .page.user-workspace { width: calc(100% - 320px); max-width: none; margin: 0 0 0 320px; padding: 28px 28px 24px; }

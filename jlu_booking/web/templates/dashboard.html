@@ -1,7 +1,8 @@
 {% extends "user_shell.html" %}
 {% block title %}场地查询 · JLU 体育馆预约{% endblock %}
 {% block content %}
-{% if daily_attention %}<p class="workspace-notice" role="status">每日自动预约：{{ daily_status }}。<a href="/daily-plan">查看设置</a></p>{% endif %}
+{% if daily_attention and not local_mode %}<p class="workspace-notice" role="status">每日自动预约：{{ daily_status }}。<a href="/daily-plan">查看设置</a></p>{% endif %}
+{% if local_mode and not companion_ready %}<p class="workspace-notice" role="status">首次预约前，请先到<a href="/profile">个人中心</a>验证同行人学工号。</p>{% endif %}
 <section class="card query-card" aria-labelledby="query-heading" data-selected-venue="{{ selected_venue }}">
   <div class="section-head"><h1 id="query-heading">快速查询</h1><span class="query-venue-badge" data-query-venue>{{ selected_venue }}</span></div>
   <div class="query-venue-choices" role="group" aria-label="选择场馆"><span class="query-label">场馆</span><div class="query-chips query-venue-links">

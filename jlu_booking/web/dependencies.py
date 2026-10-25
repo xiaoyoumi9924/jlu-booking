@@ -36,6 +36,11 @@ def anonymous_csrf(request: Request) -> str:
 
 
 def current_session(request: Request):
+    # The local desktop app owns a single account and injects its session
+    # directly, so no login cookie is needed there.
+    local_session = getattr(request.app.state, "local_session", None)
+    if local_session is not None:
+        return local_session
     raw = request.cookies.get(SESSION_COOKIE)
     if not raw:
         return None

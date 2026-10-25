@@ -7,7 +7,7 @@ import re
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .paths import TOKEN_FILE
 
@@ -30,11 +30,47 @@ def normalize_token(token: str) -> str:
 _TOKEN_PARAMETER_RE = re.compile(r"(?:^|[?&])token=([^&\s#]*)", re.IGNORECASE)
 
 
+def extract_identity_url(value: str) -> str:
+    """Extract the identity from the school's venue-selection URL locally.
+
+    Format checks cannot prove that an identity exists or is still valid;
+    callers must validate the extracted value online before saving it.
+    """
+
+    text = str(value).strip()
+    if not text:
+        raise ValueError("网址不能为空，请粘贴学校场馆系统的完整网址。")
+    if re.search(r"\s", text):
+        raise ValueError("网址不能包含空格或换行，请重新复制完整网址。")
+
+    try:
+        url = urlsplit(text)
+        route, separator, query = url.fragment.partition("?")
+        if (
+            url.scheme != "https"
+            or url.netloc.lower() not in {"ss.jlu.edu.cn", "ss.jlu.edu.cn:443"}
+            or url.path != "/easyserpApp/index.html"
+            or url.query
+            or route != "/branch"
+            or not separator
+        ):
+            raise ValueError
+        parameters = parse_qs(query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        raise ValueError("请粘贴学校体育场馆系统“选择体育馆”页面的完整网址。") from None
+
+    if parameters.get("clubId") != ["26"]:
+        raise ValueError("网址中的场馆系统标识不正确，请重新复制“选择体育馆”页面的网址。")
+    identities = parameters.get("userId", [])
+    if len(identities) != 1 or not re.fullmatch(r"[0-9A-Fa-f]{32}", identities[0]):
+        raise ValueError("网址中缺少有效的 userId，请重新登录场馆系统并复制完整网址。")
+    return identities[0]
+
+
 def extract_token_input(value: str) -> str:
     """Accept either a raw token or a copied request URL containing ``token``.
 
-    The GUI deliberately performs this parsing locally.  It never sends the
-    pasted URL anywhere and stores only the extracted token value.
+    This legacy input format remains available to CLI callers.
     """
 
     text = str(value).strip()

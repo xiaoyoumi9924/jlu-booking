@@ -1,6 +1,10 @@
 from jlu_booking.gui import BookingApp
 from types import SimpleNamespace
 
+import pytest
+
+from jlu_booking import token_store
+
 
 class FakeVariable:
     def __init__(self, value=""):
@@ -106,7 +110,8 @@ def test_auto_booking_mode_is_an_explicit_two_choice_selection():
     assert updates == [True, True]
 
 
-def test_profile_token_only_replaces_saved_value_after_validation(monkeypatch):
+@pytest.mark.parametrize("status", ["invalid", "unavailable", "account_blocked"])
+def test_profile_token_only_replaces_saved_value_after_validation(monkeypatch, status):
     app = BookingApp.__new__(BookingApp)
     app.token = "old-token"
     app.token_source = "saved"
@@ -115,13 +120,54 @@ def test_profile_token_only_replaces_saved_value_after_validation(monkeypatch):
     saved = []
     monkeypatch.setattr("jlu_booking.gui.save_token", saved.append)
 
-    app.complete_profile_token_update("new-token", SimpleNamespace(status="invalid"))
+    app.complete_profile_token_update("new-token", SimpleNamespace(status=status))
     assert saved == []
     assert app.token == "old-token"
 
     app.complete_profile_token_update("new-token", SimpleNamespace(status="valid"))
     assert saved == ["new-token"]
     assert app.token == "new-token"
+
+
+def test_profile_identity_url_saves_only_extracted_id_after_online_validation(tmp_path, monkeypatch):
+    identity = "0123456789ABCDEF0123456789ABCDEF"
+    url = f"https://ss.jlu.edu.cn/easyserpApp/index.html#/branch?clubId=26&userId={identity}"
+    app = BookingApp.__new__(BookingApp)
+    app.root = SimpleNamespace(after=lambda _delay, callback, *args: callback(*args))
+    app.token = "old-token"
+    app.token_source = "saved"
+    app.token_validated = False
+    app.profile_token_status_var = FakeVariable()
+    path = tmp_path / "token"
+    token_store.save_token("old-token", path)
+    monkeypatch.delenv("JLU_BOOKING_TOKEN", raising=False)
+    monkeypatch.setattr("jlu_booking.gui.simpledialog.askstring", lambda *_args, **_kwargs: url)
+    monkeypatch.setattr("jlu_booking.gui.save_token", lambda token: token_store.save_token(token, path))
+    threads = []
+
+    def create_thread(**kwargs):
+        thread = FakeThread(**kwargs)
+        threads.append(thread)
+        return thread
+
+    monkeypatch.setattr("jlu_booking.gui.threading.Thread", create_thread)
+
+    def validate(candidate):
+        assert candidate == identity
+        assert token_store.load_saved_token(path) == "old-token"
+        return SimpleNamespace(status="valid")
+
+    app.validate_token = validate
+    app.start_profile_token_update()
+    assert app.token == "old-token"
+    assert token_store.load_saved_token(path) == "old-token"
+    assert len(threads) == 1
+    threads[0].target(*threads[0].args)
+
+    assert token_store.load_saved_token(path) == identity
+    assert app.token == identity
+    assert app.token_validated is True
+    assert url not in path.read_text()
 
 
 def test_profile_companion_updates_local_booking_config(monkeypatch):

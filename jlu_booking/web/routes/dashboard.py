@@ -107,6 +107,7 @@ def dashboard_context(request, session, user, *, result=None, error=None, select
         "daily_attention": daily_attention,
         "token_masked": token_masked,
         "companion_text": companion_text,
+        "companion_ready": companion_text != "未验证",
         "venues": VENUES,
         "availability_result": result,
         "query_error": error,

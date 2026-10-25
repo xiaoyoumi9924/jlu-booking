@@ -12,6 +12,54 @@ def _validation(status, reason="test"):
     return TokenValidationResult(status=status, reason=reason)
 
 
+IDENTITY = "0123456789ABCDEF0123456789ABCDEF"
+NEW_IDENTITY = "FEDCBA9876543210FEDCBA9876543210"
+
+
+def _identity_url(identity=IDENTITY):
+    return f"https://ss.jlu.edu.cn/easyserpApp/index.html#/branch?clubId=26&userId={identity}"
+
+
+@pytest.mark.parametrize("value", [
+    _identity_url(),
+    f"  {_identity_url()}  ",
+    f"https://ss.jlu.edu.cn/easyserpApp/index.html#/branch?userId={IDENTITY}&clubId=26",
+])
+def test_extract_identity_url_reads_user_id_from_hash_route(value):
+    assert token_store.extract_identity_url(value) == IDENTITY
+
+
+@pytest.mark.parametrize("value", [
+    "",
+    IDENTITY,
+    f"token={IDENTITY}",
+    _identity_url().replace("https://", "http://"),
+    _identity_url().replace("ss.jlu.edu.cn", "example.com"),
+    _identity_url().replace("ss.jlu.edu.cn", "ss.jlu.edu.cn.example.com"),
+    _identity_url().replace("ss.jlu.edu.cn", "someone@ss.jlu.edu.cn"),
+    _identity_url().replace("ss.jlu.edu.cn", "ss.jlu.edu.cn:8000"),
+    _identity_url().replace("easyserpApp/index.html", "other/index.html"),
+    _identity_url().replace("/branch?", "/other?"),
+    _identity_url().replace("#/branch?", "?"),
+    _identity_url().replace("clubId=26", "clubId=99"),
+    _identity_url().replace("clubId=26&", ""),
+    _identity_url().replace("userId=", "token="),
+    _identity_url(""),
+    _identity_url("arbitrary-token"),
+    _identity_url("G" * 32),
+    _identity_url(IDENTITY[:-1]),
+    _identity_url(IDENTITY + "%0A"),
+    _identity_url() + f"&userId={NEW_IDENTITY}",
+    _identity_url() + "&clubId=26",
+    _identity_url() + "\nextra",
+])
+def test_extract_identity_url_rejects_invalid_or_ambiguous_input(value):
+    with pytest.raises(ValueError) as error:
+        token_store.extract_identity_url(value)
+    assert IDENTITY not in str(error.value)
+    assert NEW_IDENTITY not in str(error.value)
+
+
 def test_saved_token_round_trip_and_permissions(tmp_path):
     token_path = tmp_path / "private" / "token"
 
@@ -165,16 +213,16 @@ def test_gui_prompt_saves_token_for_later_tasks(monkeypatch):
 
     monkeypatch.setattr(
         "jlu_booking.gui.simpledialog.askstring",
-        lambda *_args, **_kwargs: "gui-token",
+        lambda *_args, **_kwargs: _identity_url(),
     )
     monkeypatch.setattr("jlu_booking.gui.save_token", lambda token: saved.append(token))
     app.validate_token = lambda token: (
         validated.append(token) or _validation("valid", "accepted")
     )
 
-    assert app.get_token() == "gui-token"
-    assert saved == ["gui-token"]
-    assert validated == ["gui-token"]
+    assert app.get_token() == IDENTITY
+    assert saved == [IDENTITY]
+    assert validated == [IDENTITY]
     assert app.token_validated is True
     assert app.token_source == "saved"
 
@@ -185,7 +233,7 @@ def test_gui_reprompts_until_token_passes_server_validation(monkeypatch):
     app.token = ""
     app.token_source = "none"
     app.token_validated = False
-    entered = iter(["expired-token", "valid-token"])
+    entered = iter([_identity_url(), _identity_url(NEW_IDENTITY)])
     saved = []
     errors = []
 
@@ -199,17 +247,17 @@ def test_gui_reprompts_until_token_passes_server_validation(monkeypatch):
     )
     monkeypatch.setattr("jlu_booking.gui.save_token", lambda token: saved.append(token))
     def validate(token):
-        if token == "expired-token":
+        if token == IDENTITY:
             return _validation("invalid", "auth_rejected")
         return _validation("valid", "accepted")
 
     app.validate_token = validate
 
-    assert app.get_token() == "valid-token"
-    assert saved == ["valid-token"]
+    assert app.get_token() == NEW_IDENTITY
+    assert saved == [NEW_IDENTITY]
     assert len(errors) == 1
-    assert errors[0][0] == "Token 验证未通过"
-    assert "expired-token" not in errors[0][1]
+    assert "验证未通过" in errors[0][0]
+    assert IDENTITY not in errors[0][1]
 
 
 def test_gui_replaces_an_expired_saved_token(monkeypatch):
@@ -222,7 +270,7 @@ def test_gui_replaces_an_expired_saved_token(monkeypatch):
 
     monkeypatch.setattr(
         "jlu_booking.gui.simpledialog.askstring",
-        lambda *_args, **_kwargs: "replacement-token",
+        lambda *_args, **_kwargs: _identity_url(NEW_IDENTITY),
     )
     monkeypatch.setattr(
         "jlu_booking.gui.messagebox.showerror",
@@ -240,8 +288,8 @@ def test_gui_replaces_an_expired_saved_token(monkeypatch):
 
     app.validate_token = validate
 
-    assert app.get_token() == "replacement-token"
-    assert saved == ["replacement-token"]
+    assert app.get_token() == NEW_IDENTITY
+    assert saved == [NEW_IDENTITY]
     assert app.token_source == "saved"
 
 
@@ -268,4 +316,44 @@ def test_gui_network_failure_keeps_the_previous_saved_token(monkeypatch):
     assert cleared == []
     assert app.token == "working-old-token"
     assert app.token_source == "saved"
-    assert messages[0][0] == "Token 暂时无法验证"
+    assert "暂时无法验证" in messages[0][0]
+
+
+def test_gui_invalid_url_is_rejected_before_school_validation(monkeypatch):
+    app = BookingApp.__new__(BookingApp)
+    app.root = object()
+    app.token = ""
+    app.token_validated = False
+    entered = iter(["https://example.com/?userId=not-an-identity", None])
+    messages = []
+    monkeypatch.setattr(
+        "jlu_booking.gui.simpledialog.askstring", lambda *_args, **_kwargs: next(entered)
+    )
+    monkeypatch.setattr(
+        "jlu_booking.gui.messagebox.showwarning",
+        lambda *_args, **_kwargs: messages.append(True),
+    )
+    app.validate_token = lambda _token: pytest.fail("错误网址不应调用学校接口")
+
+    assert app.get_token() is None
+    assert app.token == ""
+    assert messages == [True]
+
+
+@pytest.mark.parametrize("status", ["account_blocked", "unexpected-status"])
+def test_gui_only_accepted_identity_can_be_saved(monkeypatch, status):
+    app = BookingApp.__new__(BookingApp)
+    app.root = object()
+    app.token = "old-token"
+    app.token_source = "saved"
+    app.token_validated = False
+    saved = []
+    monkeypatch.setattr("jlu_booking.gui.save_token", saved.append)
+    monkeypatch.setattr("jlu_booking.gui.messagebox.showerror", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("jlu_booking.gui.messagebox.showwarning", lambda *_args, **_kwargs: None)
+    app.validate_token = lambda _token: _validation(status)
+
+    assert app.get_token() is None
+    assert saved == []
+    assert app.token == "old-token"
+    assert app.token_validated is False

@@ -91,7 +91,17 @@ def _default_services(settings: WebSettings) -> AppServices:
 def create_app(
     settings: WebSettings,
     services: AppServices | None = None,
+    *,
+    local_mode: bool = False,
 ) -> FastAPI:
+    """Build the browser app.
+
+    ``local_mode`` keeps the same user workspace but runs as a single local
+    account without login, registration, the admin console, or the daily
+    automatic-booking module. The public Web deployment keeps the default
+    multi-user behaviour.
+    """
+
     selected = services or _default_services(settings)
     migrate_database(selected.connection)
     if selected.tasks is None:
@@ -128,8 +138,10 @@ def create_app(
     app = FastAPI(title="JLU Booking", docs_url=None, redoc_url=None)
     app.state.settings = settings
     app.state.services = selected
+    app.state.local_mode = bool(local_mode)
     app.state.templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
     app.state.templates.env.globals["user_venues"] = VENUES
+    app.state.templates.env.globals["local_mode"] = bool(local_mode)
     app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
 
     @app.exception_handler(RateLimitExceeded)
@@ -165,12 +177,15 @@ def create_app(
             response.headers["Cache-Control"] = "no-store"
         return response
 
-    app.include_router(auth.router)
+    if not local_mode:
+        app.include_router(auth.router)
     app.include_router(profile.router)
     app.include_router(dashboard.router)
     app.include_router(availability.router)
-    app.include_router(daily_plans.router)
+    if not local_mode:
+        app.include_router(daily_plans.router)
     app.include_router(manual_booking.router)
     app.include_router(task_routes.router)
-    app.include_router(admin.router)
+    if not local_mode:
+        app.include_router(admin.router)
     return app

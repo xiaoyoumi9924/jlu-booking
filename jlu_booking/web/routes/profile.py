@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from ...token_store import extract_identity_url, extract_token_input
 from ..credentials import CredentialError, CredentialNotFound
 from ..dependencies import current_user, now_beijing, require_csrf
 from ..profile_history import list_history
@@ -12,6 +13,27 @@ from ..security import mask_secret
 
 
 router = APIRouter()
+
+
+def _token_input(request: Request, value: str) -> str:
+    """Accept the friendly identity URL in the local desktop app.
+
+    The public Web form keeps accepting a raw Token only. The desktop app is
+    frequently used by people who copied the school's "选择体育馆" page URL,
+    so it also accepts that URL and extracts the same identity the old desktop
+    GUI used.
+    """
+
+    if not getattr(request.app.state, "local_mode", False):
+        return str(value)
+    text = str(value).strip()
+    if (
+        "/easyserpApp/index.html" in text
+        or "#/branch" in text
+        or text.startswith("https://ss.jlu.edu.cn")
+    ):
+        return extract_identity_url(text)
+    return extract_token_input(text)
 
 
 def _guard(request: Request, *, allow_pending: bool = False):
@@ -61,10 +83,11 @@ async def token_onboarding(
         return redirect
     require_csrf(request, csrf_token, session)
     try:
+        token = _token_input(request, token)
         await request.app.state.services.credentials.activate_user_async(
             user.id, token, now=now_beijing()
         )
-    except CredentialError as exc:
+    except (CredentialError, ValueError) as exc:
         return request.app.state.templates.TemplateResponse(
             request=request,
             name="token_onboarding.html",
@@ -161,10 +184,11 @@ async def replace_token(
         return redirect
     require_csrf(request, csrf_token, session)
     try:
+        token = _token_input(request, token)
         await request.app.state.services.credentials.replace_token_async(
             user.id, token, now=now_beijing()
         )
-    except CredentialError as exc:
+    except (CredentialError, ValueError) as exc:
         return request.app.state.templates.TemplateResponse(
             request=request,
             name="profile.html",

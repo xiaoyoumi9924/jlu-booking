@@ -4,16 +4,19 @@
 {% block content %}
 <section class="card auth-card">
   <h1>验证 JLU Token</h1>
-  <p class="muted">验证通过后账号才会正式启用。Token 会加密保存在服务器。</p>
+  <p class="muted">{{ '首次使用需要验证一次 Token，之后打开即可直接查询和预约。Token 会加密保存在本机。' if local_mode else '验证通过后账号才会正式启用。Token 会加密保存在服务器。' }}</p>
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
   <form method="post" action="/onboarding/token">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>JLU Token<input type="password" name="token" autocomplete="off" required></label>
+    <label>{{ '学校场馆系统网址或 JLU Token' if local_mode else 'JLU Token' }}<input type="password" name="token" autocomplete="off" required placeholder="{{ '粘贴选择体育馆页面的完整网址' if local_mode else '' }}"></label>
+    {% if local_mode %}<p class="muted">获取方法：企业微信登录场馆系统 → 在“选择体育馆”页面点击右上角“…” → 在浏览器中打开 → 复制地址栏完整网址。也可以直接输入 32 位 Token。</p>{% endif %}
     <button type="submit">验证并启用</button>
   </form>
+  {% if not local_mode %}
   <form method="post" action="/logout" class="secondary-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" class="secondary">退出登录</button>
   </form>
+  {% endif %}
 </section>
 {% endblock %}
