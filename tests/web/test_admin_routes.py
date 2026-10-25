@@ -9,7 +9,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from jlu_booking.token_validation import TokenValidationResult
-from jlu_booking.web.accounts import AccountService
+from jlu_booking.web.accounts import AccountService, DISABLED_LOGIN_MESSAGE
 from jlu_booking.web.app import AppServices, create_app
 from jlu_booking.web.audit import AuditService, ReauthenticationService
 from jlu_booking.web.credentials import CredentialService
@@ -313,6 +313,83 @@ def test_admin_disable_enable_reset_and_pending_delete_are_audited(web):
     ).fetchone()
     assert deleted["target_user_id"] is None
     assert json.loads(deleted["metadata_json"])["target_username"] == "pending"
+
+
+def test_admin_disable_cancels_tasks_stops_running_and_explains_login(web):
+    client, services = web
+    scheduled_user = _create_active(
+        services, username="scheduled", token="scheduled-token"
+    )
+    running_user = _create_active(
+        services, username="running", token="running-token"
+    )
+    companion = services.credentials.decrypt_companion(scheduled_user.id)
+    services.daily_plans.save(scheduled_user.id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", companion.id, 3,
+        [["15:30", "17:30"]], False,
+    ), now=NOW)
+    services.daily_plans.set_enabled(scheduled_user.id, True, now=NOW)
+    scheduled = services.tasks.create(scheduled_user.id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", companion.id, 3,
+        [["15:30", "17:30"]], False,
+    ), now=NOW)
+
+    running_companion = services.credentials.decrypt_companion(running_user.id)
+    running = services.tasks.create(running_user.id, TaskDraft(
+        "tomorrow", "前卫体育馆", "羽毛球", running_companion.id, 3,
+        [["15:30", "17:30"]], False,
+    ), now=NOW)
+    services.connection.execute(
+        "UPDATE booking_tasks SET status='running' WHERE id=?", (running.id,)
+    )
+
+    _admin_login(client, services)
+    csrf = _csrf(client.get("/admin/users"))
+    for user in (scheduled_user, running_user):
+        assert client.post(
+            f"/admin/users/{user.id}/disable",
+            data={"csrf_token": csrf},
+            follow_redirects=False,
+        ).status_code == 303
+
+    assert services.tasks.get_for_user(
+        scheduled_user.id, scheduled.id
+    ).status == "cancelled"
+    assert services.daily_plans.get_for_user(scheduled_user.id).enabled is False
+    assert services.tasks.get_for_user(
+        running_user.id, running.id
+    ).stop_requested_at == NOW
+
+    client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False)
+    denied = client.post("/login", data={
+        "username": "scheduled",
+        "password": "long password value",
+        "csrf_token": _csrf(client.get("/login")),
+    })
+    assert denied.status_code == 400
+    assert DISABLED_LOGIN_MESSAGE in denied.text
+
+    _login(client, "owner", "owner password value")
+    users = client.get("/admin/users")
+    assert client.post(
+        f"/admin/users/{scheduled_user.id}/enable",
+        data={"csrf_token": _csrf(users)},
+        follow_redirects=False,
+    ).status_code == 303
+    assert services.accounts.get(scheduled_user.id).status == "active"
+    assert services.daily_plans.get_for_user(scheduled_user.id).enabled is False
+
+    client.post(
+        "/logout",
+        data={"csrf_token": _csrf(client.get("/admin/users"))},
+        follow_redirects=False,
+    )
+    allowed = client.post("/login", data={
+        "username": "scheduled",
+        "password": "long password value",
+        "csrf_token": _csrf(client.get("/login")),
+    }, follow_redirects=False)
+    assert allowed.status_code == 303
 
 
 def test_admin_requests_running_task_stop(web):

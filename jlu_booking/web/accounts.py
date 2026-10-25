@@ -18,6 +18,7 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,32}$")
 PENDING_LIFETIME = timedelta(hours=24)
 REGISTRATION_WINDOW = timedelta(hours=1)
 LOGIN_WINDOW = timedelta(minutes=15)
+DISABLED_LOGIN_MESSAGE = "账号已被停用，请联系管理员 fxyf00@qq.com。"
 
 
 class AccountError(RuntimeError):
@@ -237,8 +238,7 @@ class AccountService:
         ).fetchone()
         password_hash = row["password_hash"] if row is not None else self._dummy_hash
         password_ok = self._passwords.verify(password_hash, password)
-        status_ok = row is not None and row["status"] not in {"disabled", "deleted"}
-        if not password_ok or not status_ok:
+        if not password_ok or row is None or row["status"] == "deleted":
             self._throttles.consume(
                 throttle_key,
                 limit=10,
@@ -246,6 +246,14 @@ class AccountService:
                 now=now,
             )
             raise AuthenticationFailed("用户名或密码错误。")
+        if row["status"] == "disabled":
+            self._throttles.consume(
+                throttle_key,
+                limit=10,
+                window=LOGIN_WINDOW,
+                now=now,
+            )
+            raise AuthenticationFailed(DISABLED_LOGIN_MESSAGE)
         self._throttles.clear(throttle_key)
         return self._record(row)
 
@@ -296,12 +304,16 @@ class AccountService:
         password_ok = await to_thread.run_sync(
             self._passwords.verify, password_hash, str(password)
         )
-        status_ok = row is not None and row["status"] not in {"disabled", "deleted"}
-        if not password_ok or not status_ok:
+        if not password_ok or row is None or row["status"] == "deleted":
             self._throttles.consume(
                 throttle_key, limit=10, window=LOGIN_WINDOW, now=now
             )
             raise AuthenticationFailed("用户名或密码错误。")
+        if row["status"] == "disabled":
+            self._throttles.consume(
+                throttle_key, limit=10, window=LOGIN_WINDOW, now=now
+            )
+            raise AuthenticationFailed(DISABLED_LOGIN_MESSAGE)
         self._throttles.clear(throttle_key)
         return self._record(row)
 
@@ -422,6 +434,11 @@ class AccountService:
                 "UPDATE booking_tasks SET stop_requested_at = COALESCE(stop_requested_at, ?), "
                 "updated_at = ? WHERE user_id = ? AND status = 'running'",
                 (now.isoformat(), now.isoformat(), int(user_id)),
+            )
+            self._connection.execute(
+                "UPDATE daily_booking_plans SET enabled = 0, updated_at = ? "
+                "WHERE user_id = ? AND enabled = 1",
+                (now.isoformat(), int(user_id)),
             )
             self._sessions.invalidate_user_sessions(int(user_id))
             if on_success is not None:

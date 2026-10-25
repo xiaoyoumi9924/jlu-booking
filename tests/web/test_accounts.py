@@ -7,6 +7,7 @@ from jlu_booking.web.accounts import (
     AccountService,
     ActiveUserLimitReached,
     AuthenticationFailed,
+    DISABLED_LOGIN_MESSAGE,
     InvalidUsername,
     PendingUserLimitReached,
     UsernameUnavailable,
@@ -180,7 +181,7 @@ def test_cleanup_expired_pending_deletes_only_expired_records(
     assert accounts.find_by_username("valid_user") is not None
 
 
-def test_authentication_uses_generic_failure_for_unknown_wrong_and_disabled(
+def test_login_rejects_unknown_wrong_and_deleted_with_generic_failure(
     accounts, database, active_user, beijing_now
 ):
     messages = []
@@ -201,6 +202,17 @@ def test_authentication_uses_generic_failure_for_unknown_wrong_and_disabled(
         "UPDATE users SET status = 'disabled', disabled_at = ? WHERE id = ?",
         (beijing_now.isoformat(), active_user.id),
     )
+    # A wrong password must not reveal that the account is disabled.
+    with pytest.raises(AuthenticationFailed) as caught:
+        accounts.authenticate(
+            active_user.username,
+            "incorrect password",
+            source_ip="127.0.0.1",
+            now=beijing_now,
+        )
+    messages.append(str(caught.value))
+    assert len(set(messages)) == 1
+
     with pytest.raises(AuthenticationFailed) as caught:
         accounts.authenticate(
             active_user.username,
@@ -208,9 +220,20 @@ def test_authentication_uses_generic_failure_for_unknown_wrong_and_disabled(
             source_ip="127.0.0.1",
             now=beijing_now,
         )
-    messages.append(str(caught.value))
+    assert str(caught.value) == DISABLED_LOGIN_MESSAGE
+    assert "fxyf00@qq.com" in str(caught.value)
 
-    assert len(set(messages)) == 1
+    database.execute(
+        "UPDATE users SET status = 'deleted' WHERE id = ?", (active_user.id,)
+    )
+    with pytest.raises(AuthenticationFailed) as caught:
+        accounts.authenticate(
+            active_user.username,
+            "correct horse battery staple",
+            source_ip="127.0.0.1",
+            now=beijing_now,
+        )
+    assert str(caught.value) == "用户名或密码错误。"
 
 
 def test_successful_login_clears_failure_throttle(
