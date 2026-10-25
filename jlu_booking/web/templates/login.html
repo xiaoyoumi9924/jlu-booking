@@ -6,6 +6,12 @@
   <h1>登录</h1>
   <p class="muted">使用网页管理你的自动预约任务。</p>
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  {% if forgot_password %}
+  <details class="login-forgot">
+    <summary>忘记密码</summary>
+    <p>联系管理员 <a href="mailto:fxyf00@qq.com">fxyf00@qq.com</a> 重置密码</p>
+  </details>
+  {% endif %}
   <form method="post" action="/login">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>用户名<input name="username" autocomplete="username" required></label>

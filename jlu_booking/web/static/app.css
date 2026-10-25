@@ -21,6 +21,10 @@ button, .button { border: 0; padding: 10px 18px; background: #144399; color: whi
 .secondary-form { margin-top: 14px; }
 .muted { color: #60708C; }
 .error { color: #A51D2D; background: #FFF0F2; border-left: 4px solid #A51D2D; padding: 10px 12px; }
+.login-forgot { margin: -4px 0 6px; color: #60708C; font-size: .78rem; }
+.login-forgot summary { color: #2266BF; font-weight: 600; cursor: pointer; }
+.login-forgot p { margin: 7px 0 0; color: #52698B; line-height: 1.6; }
+.login-forgot a { color: #144399; }
 .masked { font-family: ui-monospace, SFMono-Regular, monospace; background: #F2F5FA; padding: 10px; border-radius: 8px; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 :focus-visible { outline: 3px solid #6FA1FF; outline-offset: 2px; }

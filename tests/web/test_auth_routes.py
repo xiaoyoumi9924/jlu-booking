@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from jlu_booking.token_validation import TokenValidationResult
-from jlu_booking.web.accounts import AccountService
+from jlu_booking.web.accounts import AccountService, DISABLED_LOGIN_MESSAGE
 from jlu_booking.web.app import AppServices, create_app
 from jlu_booking.web.credentials import CredentialService
 from jlu_booking.web.db import connect_database, migrate_database
@@ -104,6 +104,33 @@ def _activate(client, token="token-alice"):
         data={"token": token, "csrf_token": _csrf(page)},
         follow_redirects=False,
     )
+
+
+def test_login_failure_shows_forgot_password_contact(web):
+    client, _ = web
+    assert _register(client).status_code == 303
+    assert "忘记密码" not in client.get("/login").text
+
+    response = _login(client, password="incorrect password")
+    assert response.status_code == 400
+    assert "忘记密码" in response.text
+    assert "联系管理员" in response.text
+    assert "fxyf00@qq.com" in response.text
+    assert "重置密码" in response.text
+
+
+def test_disabled_login_does_not_offer_password_reset(web):
+    client, services = web
+    assert _register(client).status_code == 303
+    services.connection.execute(
+        "UPDATE users SET status='disabled', disabled_at=? WHERE username='alice'",
+        (datetime(2026, 9, 22, 8, 0, tzinfo=BEIJING).isoformat(),),
+    )
+
+    response = _login(client)
+    assert response.status_code == 400
+    assert DISABLED_LOGIN_MESSAGE in response.text
+    assert "忘记密码" not in response.text
 
 
 def test_registration_login_and_pending_profile_redirect(web):

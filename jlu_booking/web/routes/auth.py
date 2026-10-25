@@ -5,7 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ..accounts import AccountError, AuthenticationFailed
+from ..accounts import (
+    DISABLED_LOGIN_MESSAGE,
+    AccountError,
+    AuthenticationFailed,
+)
 from ..dependencies import (
     FORM_CSRF_COOKIE,
     SESSION_COOKIE,
@@ -98,7 +102,7 @@ async def login_page(request: Request):
     response = _templates(request).TemplateResponse(
         request=request,
         name="login.html",
-        context={"csrf_token": token, "error": None},
+        context={"csrf_token": token, "error": None, "forgot_password": False},
     )
     _set_form_csrf(request, response, token)
     return response
@@ -124,7 +128,13 @@ async def login(
         response = _templates(request).TemplateResponse(
             request=request,
             name="login.html",
-            context={"csrf_token": token, "error": str(exc)},
+            context={
+                "csrf_token": token,
+                "error": str(exc),
+                # A disabled account needs an administrator to re-enable it,
+                # not a password reset.
+                "forgot_password": str(exc) != DISABLED_LOGIN_MESSAGE,
+            },
             status_code=400,
         )
         _set_form_csrf(request, response, token)
