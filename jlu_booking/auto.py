@@ -1556,6 +1556,12 @@ def run_booking_loop(
 
 
 def main(argv=None):
+    if __package__:
+        from .streams import ensure_standard_streams
+    else:
+        from jlu_booking.streams import ensure_standard_streams
+
+    ensure_standard_streams()
     configure_text_output()
     parser = build_arg_parser()
     args = parser.parse_args(argv)

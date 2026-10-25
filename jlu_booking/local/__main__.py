@@ -3,27 +3,33 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import logging
+import os
 import sys
+import traceback
 import webbrowser
 from collections.abc import Sequence
+from pathlib import Path
 
+from ..streams import ensure_standard_streams
 from .bootstrap import LOCAL_USER_DISPLAY_NAME, create_local_app, local_data_dir
 from .server import LocalRuntime
 from .window import open_app_window
 
 
 LOG = logging.getLogger("jlu_booking.local")
+LOG_FILE_NAME = "local.log"
+ERROR_LOG_FILE_NAME = "startup-error.log"
 
 
-def _configure_logging() -> None:
+def _configure_logging() -> Path:
     base = local_data_dir()
     base.mkdir(parents=True, exist_ok=True)
+    log_path = base / LOG_FILE_NAME
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     try:
-        handlers.append(
-            logging.FileHandler(base / "local.log", encoding="utf-8")
-        )
+        handlers.append(logging.FileHandler(log_path, encoding="utf-8"))
     except OSError:
         pass
     logging.basicConfig(
@@ -32,6 +38,14 @@ def _configure_logging() -> None:
         handlers=handlers,
         force=True,
     )
+    LOG.info(
+        "JLU Booking 启动 | Python %s | %s | frozen=%s",
+        sys.version.split()[0],
+        sys.platform,
+        bool(getattr(sys, "frozen", False)),
+    )
+    LOG.info("本机数据目录：%s", base)
+    return log_path
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -50,12 +64,36 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _report_startup_failure(exc: BaseException) -> None:
-    message = (
-        f"启动失败：{exc}\n\n"
-        f"详细日志：{local_data_dir() / 'local.log'}"
-    )
-    LOG.exception("local desktop startup failed", exc_info=True)
+def _safe_log_path() -> Path | None:
+    try:
+        return local_data_dir() / LOG_FILE_NAME
+    except Exception:
+        return None
+
+
+def _write_startup_error(exc: BaseException) -> Path | None:
+    """Keep the traceback somewhere the user can send us."""
+
+    try:
+        path = local_data_dir() / ERROR_LOG_FILE_NAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "JLU Booking startup failure\n"
+            f"Python: {sys.version}\n"
+            f"Platform: {sys.platform}\n"
+            f"Frozen: {bool(getattr(sys, 'frozen', False))}\n\n"
+            f"{type(exc).__name__}: {exc}\n\n"
+            + traceback.format_exc(),
+            encoding="utf-8",
+        )
+        return path
+    except Exception:
+        return None
+
+
+def _show_error_dialog(message: str) -> None:
+    """Show an error without requiring a console or a working Tk install."""
+
     try:
         import tkinter as tk
         from tkinter import messagebox
@@ -64,13 +102,53 @@ def _report_startup_failure(exc: BaseException) -> None:
         root.withdraw()
         messagebox.showerror("JLU Booking", message)
         root.destroy()
+        return
     except Exception:
+        pass
+
+    if os.name == "nt":
+        try:
+            message_box = ctypes.windll.user32.MessageBoxW  # type: ignore[attr-defined]
+            message_box.argtypes = (
+                ctypes.c_void_p,
+                ctypes.c_wchar_p,
+                ctypes.c_wchar_p,
+                ctypes.c_uint,
+            )
+            message_box.restype = ctypes.c_int
+            message_box(None, message, "JLU Booking", 0x00000010)
+            return
+        except Exception:
+            pass
+
+    try:
         print(message, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+def _report_startup_failure(exc: BaseException) -> None:
+    log_path = _safe_log_path()
+    error_path = _write_startup_error(exc)
+    message = f"启动失败：{exc}"
+    if log_path is not None:
+        message += f"\n\n详细日志：{log_path}"
+    if error_path is not None:
+        message += f"\n错误详情：{error_path}"
+    message += "\n\n请把日志文件发给开发者，或提交到项目 Issue。"
+    try:
+        LOG.critical(
+            "local desktop startup failed",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+    except Exception:
+        pass
+    _show_error_dialog(message)
 
 
 def _run(args: argparse.Namespace) -> int:
     app, settings, identity = create_local_app()
-    runtime = LocalRuntime(app, settings, log_path=local_data_dir() / "local.log")
+    runtime = LocalRuntime(app, settings, log_path=local_data_dir() / LOG_FILE_NAME)
     try:
         runtime.start(port=args.port or None)
 
@@ -84,7 +162,7 @@ def _run(args: argparse.Namespace) -> int:
             print("已从旧版本地配置导入同行人学工号。", flush=True)
         print(
             "关闭应用窗口即可退出；日志位于 "
-            + str(local_data_dir() / "local.log"),
+            + str(local_data_dir() / LOG_FILE_NAME),
             flush=True,
         )
 
@@ -103,10 +181,14 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    _configure_logging()
+    # Must run before any print(): windowed Windows builds have no console.
+    ensure_standard_streams()
     try:
+        args = _parser().parse_args(argv)
+        _configure_logging()
         return _run(args)
+    except SystemExit:
+        raise
     except Exception as exc:
         _report_startup_failure(exc)
         return 1

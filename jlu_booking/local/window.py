@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import webbrowser
 from pathlib import Path
@@ -48,34 +50,73 @@ def _chrome_candidates() -> list[Path]:
     ]
 
 
+def _window_profile_root() -> Path:
+    root = local_data_dir() / "window-profile"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _remove_stale_profiles(root: Path) -> None:
+    """Delete profiles left behind by a crashed or force-killed session."""
+
+    deadline = time.time() - 7 * 24 * 60 * 60
+    try:
+        candidates = list(root.glob("session-*"))
+    except OSError:
+        return
+    for candidate in candidates:
+        try:
+            if candidate.is_dir() and candidate.stat().st_mtime < deadline:
+                shutil.rmtree(candidate, ignore_errors=True)
+        except OSError:
+            continue
+
+
 def _open_chrome_app(url: str) -> bool:
     """Open a standalone Chrome/Edge app window and wait for it to close."""
 
     executable = next((item for item in _chrome_candidates() if item.is_file()), None)
     if executable is None:
         return False
-    profile_dir = local_data_dir() / "window-profile"
-    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    # A dedicated profile per launch prevents a running Chrome/Edge process
+    # from handing the window off to itself and making the launcher exit early.
+    try:
+        profile_root = _window_profile_root()
+        _remove_stale_profiles(profile_root)
+        profile_dir = Path(
+            tempfile.mkdtemp(prefix="session-", dir=str(profile_root))
+        )
+    except OSError:
+        return False
+
     try:
         process = subprocess.Popen(
             [
                 str(executable),
                 f"--app={url}",
                 f"--user-data-dir={profile_dir}",
+                "--window-size=1440,900",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--disable-background-mode",
                 "--disable-features=Translate",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
     except OSError:
+        shutil.rmtree(profile_dir, ignore_errors=True)
         return False
-    started = time.monotonic()
-    exit_code = process.wait()
-    # A second Chrome instance normally hands the window to an existing
-    # process and returns immediately; keep the server alive in that case.
-    return not (exit_code == 0 and time.monotonic() - started < 2.0)
+
+    try:
+        started = time.monotonic()
+        exit_code = process.wait()
+        # A browser that exits immediately probably failed to open the window;
+        # the caller can then fall back to the system default browser.
+        return not (exit_code == 0 and time.monotonic() - started < 2.0)
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
 
 
 def open_app_window(*, url: str) -> bool:

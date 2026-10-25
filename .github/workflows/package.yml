@@ -31,6 +31,86 @@ jobs:
       - run: python tools/build_package.py
         env:
           QT_QPA_PLATFORM: offscreen
+      - name: Smoke-test packaged desktop app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          JLU_BOOKING_LOCAL_DIR: ${{ github.workspace }}\smoke-data
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $PWD 'dist\JLU Booking\JLU Booking.exe'
+          $stdout = Join-Path $PWD 'smoke-stdout.log'
+          $stderr = Join-Path $PWD 'smoke-stderr.log'
+          $process = Start-Process -FilePath $exe `
+            -ArgumentList '--no-window', '--port', '18765' `
+            -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              Start-Sleep -Milliseconds 500
+              if ($process.HasExited) { break }
+              try {
+                $response = Invoke-WebRequest -Uri 'http://127.0.0.1:18765/' `
+                  -UseBasicParsing -TimeoutSec 2 -MaximumRedirection 5
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              } catch {
+                # Keep polling until the server binds the port.
+              }
+            }
+            if (-not $ready) {
+              Write-Host '--- stdout ---'
+              if (Test-Path $stdout) { Get-Content $stdout }
+              Write-Host '--- stderr ---'
+              if (Test-Path $stderr) { Get-Content $stderr }
+              $log = Join-Path $env:JLU_BOOKING_LOCAL_DIR 'local.log'
+              if (Test-Path $log) {
+                Write-Host '--- local.log ---'
+                Get-Content $log
+              }
+              throw 'Packaged desktop app did not become ready.'
+            }
+            $log = Join-Path $env:JLU_BOOKING_LOCAL_DIR 'local.log'
+            if (-not (Test-Path $log)) {
+              throw 'Packaged desktop app did not write local.log.'
+            }
+            Write-Host 'Packaged desktop app started and answered HTTP 200.'
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - name: Smoke-test packaged booking worker
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $worker = Join-Path $PWD 'dist\JLU Booking\JLU Booking Worker.exe'
+          $workerOut = Join-Path $PWD 'worker-help.log'
+          $workerErr = Join-Path $PWD 'worker-help.err.log'
+          $process = Start-Process -FilePath $worker -ArgumentList '--help' `
+            -PassThru -Wait -RedirectStandardOutput $workerOut -RedirectStandardError $workerErr
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path $workerErr) { Get-Content $workerErr }
+            throw "Booking worker --help exited with $($process.ExitCode)."
+          }
+          if (-not (Test-Path $workerOut) -or (Get-Item $workerOut).Length -eq 0) {
+            throw 'Booking worker did not write its help text to stdout.'
+          }
+          Write-Host 'Packaged booking worker produced console output.'
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw 'Inno Setup 6 (ISCC.exe) was not found.' }
+          $version = (python -c "import jlu_booking; print(jlu_booking.__version__)").Trim()
+          & $iscc "/DMyAppVersion=$version" 'packaging\windows-installer.iss'
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE." }
+          if (-not (Test-Path 'dist\JLU-Booking-Setup.exe')) {
+            throw 'Installer was not created.'
+          }
       - if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path 'dist/JLU Booking' -DestinationPath 'jlu-booking-Windows.zip'
@@ -42,6 +122,12 @@ jobs:
         with:
           name: jlu-booking-${{ runner.os }}
           path: jlu-booking-*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: jlu-booking-Windows-installer
+          path: dist/JLU-Booking-Setup.exe
           if-no-files-found: error
 
   release:

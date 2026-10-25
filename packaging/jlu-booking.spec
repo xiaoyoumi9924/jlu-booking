@@ -6,6 +6,8 @@ from pathlib import Path
 
 
 project_dir = Path(SPECPATH).parent
+icon_file = project_dir / "assets" / "JLU_LOGO.ico"
+version_file = project_dir / "packaging" / "windows-version-info.txt"
 
 hiddenimports = [
     "uvicorn.logging",
@@ -62,21 +64,49 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+exe_options = {
+    "debug": False,
+    "bootloader_ignore_signals": False,
+    "strip": False,
+    "upx": True,
+    "console": False,
+}
+if sys.platform == "win32":
+    exe_options.update(
+        icon=str(icon_file),
+        version=str(version_file),
+    )
+
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
     name="JLU Booking",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=False,
+    **exe_options,
 )
 
+collected = [exe]
+
+if sys.platform == "win32":
+    # The main executable has no console, so its stdout/stderr are None.
+    # This tiny sibling uses the console bootloader and is launched with
+    # CREATE_NO_WINDOW; it exists only to let the booking worker stream logs.
+    worker_options = dict(exe_options)
+    worker_options["console"] = True
+    collected.append(
+        EXE(
+            pyz,
+            a.scripts,
+            [],
+            exclude_binaries=True,
+            name="JLU Booking Worker",
+            **worker_options,
+        )
+    )
+
 bundle_files = COLLECT(
-    exe,
+    *collected,
     a.binaries,
     a.datas,
     strip=False,
@@ -89,4 +119,5 @@ if sys.platform == "darwin":
         bundle_files,
         name="JLU Booking.app",
         bundle_identifier="io.github.xiaoyoumi9924.jlu-booking",
+        version="2.6.1",
     )
