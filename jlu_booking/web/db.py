@@ -233,6 +233,17 @@ MIGRATION_4 = (
     "CHECK (start_mode IN ('scheduled', 'immediate'))",
 )
 
+# Administrators can operate a user's daily plan. Keep the last actor so the
+# console can say who enabled or last changed it without replaying the audit log.
+MIGRATION_5 = (
+    "ALTER TABLE daily_booking_plans ADD COLUMN enabled_by_user_id INTEGER REFERENCES users(id)",
+    "ALTER TABLE daily_booking_plans ADD COLUMN updated_by_user_id INTEGER REFERENCES users(id)",
+    "UPDATE daily_booking_plans SET updated_by_user_id = user_id "
+    "WHERE updated_by_user_id IS NULL",
+    "UPDATE daily_booking_plans SET enabled_by_user_id = user_id "
+    "WHERE enabled = 1 AND enabled_by_user_id IS NULL",
+)
+
 
 def connect_database(path: Path | str) -> sqlite3.Connection:
     """Open a configured SQLite connection for Web application state."""
@@ -288,7 +299,7 @@ def migrate_database(connection: sqlite3.Connection) -> None:
         applied = {
             row[0] for row in connection.execute("SELECT version FROM schema_migrations")
         }
-        for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATION_4)):
+        for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATION_4), (5, MIGRATION_5)):
             if version in applied:
                 continue
             for statement in statements:

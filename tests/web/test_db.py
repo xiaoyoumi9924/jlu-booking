@@ -4,7 +4,10 @@ import sqlite3
 
 import pytest
 
-from jlu_booking.web.db import MIGRATION_1, connect_database, migrate_database, transaction
+from jlu_booking.web.db import (
+    MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4,
+    connect_database, migrate_database, transaction,
+)
 from jlu_booking.web.settings import WebSettings
 
 
@@ -214,7 +217,7 @@ def test_versioned_migrations_preserve_old_tasks_and_prevent_duplicate_daily_tas
     )
     migrate_database(connection)
     migrate_database(connection)
-    assert {row[0] for row in connection.execute("SELECT version FROM schema_migrations")} == {1, 2, 3, 4}
+    assert {row[0] for row in connection.execute("SELECT version FROM schema_migrations")} == {1, 2, 3, 4, 5}
     assert connection.execute("SELECT source FROM booking_tasks WHERE id=1").fetchone()[0] == "one_shot"
     cursor = connection.execute(
         "INSERT INTO daily_booking_plans (user_id,enabled,target_day,venue,sport,companion_id,"
@@ -235,3 +238,31 @@ def test_versioned_migrations_preserve_old_tasks_and_prevent_duplicate_daily_tas
         insert_daily("no_result")
     connection.execute("UPDATE booking_tasks SET status='cancelled' WHERE source='daily'")
     insert_daily("scheduled")
+
+
+def test_daily_plan_actor_columns_are_backfilled_for_existing_plans(tmp_path):
+    connection = connect_database(tmp_path / "web.sqlite3")
+    connection.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+    for version, statements in ((1, MIGRATION_1), (2, MIGRATION_2), (3, MIGRATION_3), (4, MIGRATION_4)):
+        for statement in statements:
+            connection.execute(statement)
+        connection.execute("INSERT INTO schema_migrations VALUES (?, ?)", (version, "2026-09-22T06:00:00+08:00"))
+    stamp = "2026-09-22T06:00:00+08:00"
+    connection.execute(
+        "INSERT INTO users (username,password_hash,role,status,created_at) "
+        "VALUES ('alice','hash','user','active',?)", (stamp,)
+    )
+    connection.execute(
+        "INSERT INTO companions (user_id,student_number_ciphertext,name_ciphertext,verified_at,updated_at) "
+        "VALUES (1,?,?,?,?)", (b"number", b"name", stamp, stamp)
+    )
+    connection.execute(
+        "INSERT INTO daily_booking_plans (user_id,enabled,target_day,venue,sport,companion_id,"
+        "preferred_court_number,time_priority_json,real_booking_enabled,created_at,updated_at) "
+        "VALUES (1,1,'today','前卫体育馆','羽毛球',1,3,'[]',0,?,?)", (stamp, stamp)
+    )
+    migrate_database(connection)
+    row = connection.execute(
+        "SELECT enabled_by_user_id, updated_by_user_id FROM daily_booking_plans WHERE user_id=1"
+    ).fetchone()
+    assert tuple(row) == (1, 1)

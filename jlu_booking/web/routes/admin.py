@@ -2,23 +2,51 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from ...api import VENUES
+from ...config import DEFAULT_TIME_PRIORITY
 from ..accounts import AccountError
+from ..credentials import CredentialError
 from ..db import TASK_STATUSES, transaction
 from ..dependencies import client_ip, current_user, now_beijing, require_csrf
-from ..security import RateLimitExceeded, mask_secret
-from ..tasks import TaskError
-from .task_routes import _redact_line, read_private_log_lines, read_private_phase
+from ..security import RateLimitExceeded, mask_name, mask_secret
+from ..tasks import SCHEDULER_START, TaskError
+from .task_routes import _draft, _redact_line, read_private_log_lines, read_private_phase
 
 
 router = APIRouter(prefix="/admin")
 
 ISSUE_STATUSES = ("submission_unknown", "token_invalid", "account_blocked", "network_unavailable", "error")
+
+PLAN_TASK_LABELS = {
+    "scheduled": "等待启动",
+    "running": "运行中",
+    "success": "预约成功",
+    "no_result": "未找到场地",
+    "token_invalid": "Token 失效",
+    "account_blocked": "账号受限",
+    "daily_limit": "预约已达上限",
+    "submission_unknown": "结果待核对",
+    "network_unavailable": "网络不可用",
+    "stopped": "已停止",
+    "error": "运行出错",
+    "cancelled": "已取消",
+}
+PLAN_NOTICES = {
+    "saved": "每日预约配置已保存，变更已写入审计记录。",
+    "enabled": "每日自动预约已开启，操作已写入审计记录。",
+    "disabled": "每日自动预约已关闭，操作已写入审计记录。",
+    "unchanged": "没有检测到变更，未写入审计记录。",
+    "noop": "当前状态已经如此，未重复写入审计记录。",
+}
+PLAN_REASON_LIMIT = 200
+PLAN_MUTATION_WINDOW = timedelta(minutes=1)
 
 
 def _filter_value(request: Request, name: str, allowed: set[str]) -> str:
@@ -126,7 +154,7 @@ def _user_rows(request):
             pass
         try:
             person = services.credentials.decrypt_companion(user.id)
-            companion = f"{person.name} · {mask_secret(person.student_number)}"
+            companion = f"{mask_name(person.name)} · {mask_secret(person.student_number)}"
         except Exception:
             pass
         result.append((user, masked_token, companion))
@@ -160,23 +188,358 @@ async def users(request: Request):
                    })
 
 
-@router.get("/users/{user_id}")
-async def user_detail(request: Request, user_id: int):
-    session, admin = _admin(request)
+def _target_user(request: Request, user_id: int):
     row = request.app.state.services.connection.execute(
         "SELECT * FROM users WHERE id=? AND role='user'", (user_id,)
     ).fetchone()
     if row is None:
         raise HTTPException(404, "页面不存在。")
-    user = request.app.state.services.accounts._record(row)
-    connection = request.app.state.services.connection
-    credential = connection.execute("SELECT verified_at, last_status FROM user_credentials WHERE user_id=?", (user_id,)).fetchone()
-    companion = connection.execute("SELECT verified_at FROM companions WHERE user_id=?", (user_id,)).fetchone()
-    activity = connection.execute("SELECT MAX(last_seen_at) FROM web_sessions WHERE user_id=?", (user_id,)).fetchone()[0]
-    user_tasks = connection.execute("SELECT id, venue, sport, execution_date, status, source FROM booking_tasks WHERE user_id=? ORDER BY id DESC LIMIT 12", (user_id,)).fetchall()
-    return _render(request, session, admin, "admin/user_detail.html", target=user,
-                   credential=credential, companion=companion, activity=activity,
-                   user_tasks=user_tasks)
+    return request.app.state.services.accounts._record(row)
+
+
+def _user_detail_context(request, session, admin, user_id, *, error=None, notice=None):
+    services = request.app.state.services
+    connection = services.connection
+    row = connection.execute(
+        "SELECT * FROM users WHERE id=? AND role='user'", (user_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "页面不存在。")
+    user = services.accounts._record(row)
+    now = now_beijing()
+    credential = connection.execute(
+        "SELECT verified_at, last_status FROM user_credentials WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    companion = connection.execute(
+        "SELECT verified_at FROM companions WHERE user_id=?", (user_id,)
+    ).fetchone()
+    masked_companion_name = None
+    masked_student_number = None
+    try:
+        person = services.credentials.decrypt_companion(user_id)
+    except CredentialError:
+        person = None
+    if person is not None:
+        masked_companion_name = mask_name(person.name)
+        masked_student_number = mask_secret(person.student_number)
+    activity = connection.execute(
+        "SELECT MAX(last_seen_at) FROM web_sessions WHERE user_id=?", (user_id,)
+    ).fetchone()[0]
+    user_tasks = connection.execute(
+        "SELECT id, venue, sport, execution_date, status, source FROM booking_tasks "
+        "WHERE user_id=? ORDER BY id DESC LIMIT 12", (user_id,)
+    ).fetchall()
+    plan_row = connection.execute(
+        "SELECT p.*, eb.username AS enabled_by_username, ub.username AS updated_by_username "
+        "FROM daily_booking_plans p "
+        "LEFT JOIN users eb ON eb.id = p.enabled_by_user_id "
+        "LEFT JOIN users ub ON ub.id = p.updated_by_user_id "
+        "WHERE p.user_id = ?", (user_id,)
+    ).fetchone()
+    plan = services.daily_plans._record(plan_row) if plan_row is not None else None
+    today_task = None
+    if plan is not None:
+        today_task = connection.execute(
+            "SELECT id, status FROM booking_tasks WHERE daily_plan_id=? "
+            "AND (status='running' OR execution_date=?) "
+            "ORDER BY CASE WHEN status='running' THEN 0 ELSE 1 END, id DESC LIMIT 1",
+            (plan.id, now.date().isoformat()),
+        ).fetchone()
+    next_run = None
+    if plan is not None and plan.enabled:
+        next_run = "今天 07:27" if now.time() < SCHEDULER_START else "明天 07:27"
+    plan_blocking = None
+    if plan is not None:
+        plan_blocking = services.daily_plans.blocking_reason(
+            plan, services.tasks.next_execution_date(now)
+        )
+    priorities = list(plan.time_priority) if plan is not None else []
+    priorities.extend(item for item in DEFAULT_TIME_PRIORITY if item not in priorities)
+    return {
+        "target": user,
+        "credential": credential,
+        "companion": companion,
+        "masked_companion_name": masked_companion_name,
+        "masked_student_number": masked_student_number,
+        "activity": activity,
+        "user_tasks": user_tasks,
+        "plan": plan,
+        "plan_enabled_by": plan_row["enabled_by_username"] if plan_row is not None else None,
+        "plan_updated_by": plan_row["updated_by_username"] if plan_row is not None else None,
+        "today_task": today_task,
+        "today_task_label": (
+            PLAN_TASK_LABELS.get(today_task["status"], today_task["status"])
+            if today_task is not None else None
+        ),
+        "next_run": next_run,
+        "plan_blocking": plan_blocking,
+        "venues": VENUES,
+        "priority_options": priorities,
+        "error": error,
+        "notice": PLAN_NOTICES.get(notice) if notice else None,
+    }
+
+
+def _render_user_detail(request, session, admin, user_id, *, error=None, notice=None, status=200):
+    context = _user_detail_context(
+        request, session, admin, user_id, error=error, notice=notice
+    )
+    return request.app.state.templates.TemplateResponse(
+        request=request,
+        name="admin/user_detail.html",
+        context={"admin": admin, "csrf_token": session.csrf_token, **context},
+        status_code=status,
+    )
+
+
+@router.get("/users/{user_id}")
+async def user_detail(request: Request, user_id: int):
+    session, admin = _admin(request)
+    return _render_user_detail(
+        request, session, admin, user_id,
+        notice=request.query_params.get("notice", ""),
+    )
+
+
+def _require_reason(value: str) -> str:
+    reason = str(value or "").strip()
+    if not reason:
+        raise ValueError("请填写操作原因。")
+    if len(reason) > PLAN_REASON_LIMIT:
+        raise ValueError(f"操作原因不能超过 {PLAN_REASON_LIMIT} 字。")
+    return reason
+
+
+def _plan_mutation_allowed(request: Request, admin_id: int, now) -> None:
+    try:
+        request.app.state.services.throttles.consume(
+            f"admin-plan:{int(admin_id)}",
+            limit=20,
+            window=PLAN_MUTATION_WINDOW,
+            now=now,
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+
+
+def _plan_snapshot(plan) -> dict:
+    return {
+        "target_day": plan.target_day,
+        "venue": plan.venue,
+        "sport": plan.sport,
+        "preferred_court_number": plan.preferred_court_number,
+        "time_priority": [list(item) for item in plan.time_priority],
+        "real_booking_enabled": bool(plan.real_booking_enabled),
+    }
+
+
+def _audit_json(value) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _changed_fields(plan, values: dict) -> list[str]:
+    changed = []
+    if plan.target_day != values["target_day"]:
+        changed.append("target_day")
+    if plan.venue != values["venue"]:
+        changed.append("venue")
+    if plan.sport != values["sport"]:
+        changed.append("sport")
+    if int(plan.companion_id) != int(values["companion_id"]):
+        changed.append("companion_id")
+    if int(plan.preferred_court_number) != int(values["preferred_court_number"]):
+        changed.append("preferred_court_number")
+    if [list(item) for item in plan.time_priority] != json.loads(values["time_priority_json"]):
+        changed.append("time_priority")
+    if int(plan.real_booking_enabled) != int(values["real_booking_enabled"]):
+        changed.append("real_booking_enabled")
+    return changed
+
+
+@router.post("/users/{user_id}/daily-plan")
+async def admin_save_daily_plan(
+    request: Request,
+    user_id: int,
+    target_day: str = Form(...),
+    venue: str = Form(...),
+    sport: str = Form(...),
+    preferred_court_number: str = Form(...),
+    priority: list[str] = Form(...),
+    mode: str = Form("scan"),
+    reason: str = Form(""),
+    csrf_token: str = Form(""),
+):
+    session, admin = _admin(request)
+    require_csrf(request, csrf_token, session)
+    now = now_beijing()
+    _plan_mutation_allowed(request, admin.id, now)
+    target = _target_user(request, user_id)
+    services = request.app.state.services
+    try:
+        reason_text = _require_reason(reason)
+        draft = _draft(
+            target, request, target_day, venue, sport,
+            preferred_court_number, priority, mode,
+        )
+        current = services.daily_plans.get_for_user(user_id)
+        values = services.tasks._normalize_draft(user_id, draft)
+        changed = _changed_fields(current, values) if current is not None else ["created"]
+        if current is not None and not changed:
+            return RedirectResponse(f"/admin/users/{user_id}?notice=unchanged", 303)
+        before = _audit_json(_plan_snapshot(current)) if current is not None else ""
+        def _record_plan_change(plan) -> None:
+            _audit(request, admin, "daily_plan_updated", user_id, {
+                "outcome": "success",
+                "reason": reason_text,
+                "before": before,
+                "after": _audit_json(_plan_snapshot(plan)),
+                "changed_fields": ",".join(changed),
+            })
+        services.daily_plans.save(
+            user_id, draft, now=now, actor_id=admin.id,
+            on_success=_record_plan_change,
+        )
+    except (CredentialError, TaskError, ValueError) as exc:
+        return _render_user_detail(
+            request, session, admin, user_id, error=str(exc), status=400
+        )
+    return RedirectResponse(f"/admin/users/{user_id}?notice=saved", 303)
+
+
+@router.post("/users/{user_id}/daily-plan/enable")
+async def admin_enable_daily_plan(
+    request: Request,
+    user_id: int,
+    reason: str = Form(""),
+    confirm_real: str = Form(""),
+    csrf_token: str = Form(""),
+):
+    session, admin = _admin(request)
+    require_csrf(request, csrf_token, session)
+    now = now_beijing()
+    _plan_mutation_allowed(request, admin.id, now)
+    _target_user(request, user_id)
+    services = request.app.state.services
+    try:
+        reason_text = _require_reason(reason)
+        plan = services.daily_plans.get_for_user(user_id)
+        if plan is None:
+            raise ValueError("该用户还没有每日预约配置，请先保存配置。")
+        if plan.enabled:
+            return RedirectResponse(f"/admin/users/{user_id}?notice=noop", 303)
+        if plan.real_booking_enabled and confirm_real != "yes":
+            raise ValueError("开启真实预约前，请勾选确认将向学校系统提交真实预约。")
+        def _record_enable(plan) -> None:
+            _audit(request, admin, "daily_plan_enabled", user_id, {
+                "outcome": "success",
+                "reason": reason_text,
+                "plan_snapshot": _audit_json(_plan_snapshot(plan)),
+                "enabled_at": plan.enabled_at.isoformat() if plan.enabled_at else "",
+            })
+        services.daily_plans.set_enabled(
+            user_id, True, now=now, actor_id=admin.id,
+            on_success=_record_enable,
+        )
+        services.daily_plans.materialize(now)
+    except (CredentialError, TaskError, ValueError) as exc:
+        return _render_user_detail(
+            request, session, admin, user_id, error=str(exc), status=400
+        )
+    return RedirectResponse(f"/admin/users/{user_id}?notice=enabled", 303)
+
+
+@router.post("/users/{user_id}/daily-plan/disable")
+async def admin_disable_daily_plan(
+    request: Request,
+    user_id: int,
+    reason: str = Form(""),
+    csrf_token: str = Form(""),
+):
+    session, admin = _admin(request)
+    require_csrf(request, csrf_token, session)
+    now = now_beijing()
+    _plan_mutation_allowed(request, admin.id, now)
+    _target_user(request, user_id)
+    services = request.app.state.services
+    try:
+        reason_text = _require_reason(reason)
+        plan = services.daily_plans.get_for_user(user_id)
+        if plan is None:
+            raise ValueError("该用户还没有每日预约配置。")
+        if not plan.enabled:
+            return RedirectResponse(f"/admin/users/{user_id}?notice=noop", 303)
+        cancelled = [
+            row["id"] for row in services.connection.execute(
+                "SELECT id FROM booking_tasks WHERE daily_plan_id=? AND status='scheduled' "
+                "ORDER BY id", (plan.id,),
+            )
+        ]
+        def _record_disable(_plan) -> None:
+            _audit(request, admin, "daily_plan_disabled", user_id, {
+                "outcome": "success",
+                "reason": reason_text,
+                "cancelled_task_ids": ",".join(str(task_id) for task_id in cancelled),
+            })
+        services.daily_plans.set_enabled(
+            user_id, False, now=now, actor_id=admin.id,
+            on_success=_record_disable,
+        )
+    except (CredentialError, TaskError, ValueError) as exc:
+        return _render_user_detail(
+            request, session, admin, user_id, error=str(exc), status=400
+        )
+    return RedirectResponse(f"/admin/users/{user_id}?notice=disabled", 303)
+
+
+@router.post("/users/{user_id}/companion/reveal")
+async def reveal_companion(
+    request: Request, user_id: int,
+    password: str = Form(""), csrf_token: str = Form(""),
+):
+    session, admin = _admin(request)
+    require_csrf(request, csrf_token, session)
+    now = now_beijing()
+    if not password:
+        raise HTTPException(403, "请输入管理员密码。")
+    try:
+        await request.app.state.services.reauth.grant_async(
+            admin.id, session.id, password, now=now,
+            on_success=lambda: _audit(
+                request, admin, "admin_reauthenticated",
+                metadata={"outcome": "success"},
+            ),
+        )
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except (PermissionError, AccountError) as exc:
+        _audit(
+            request, admin, "admin_reauthentication_failed",
+            metadata={"outcome": "failure", "reason": type(exc).__name__},
+        )
+        raise HTTPException(403, str(exc)) from exc
+    try:
+        person = request.app.state.services.credentials.decrypt_companion(user_id)
+    except CredentialError as exc:
+        raise HTTPException(404, "该用户尚未验证同行人。") from exc
+    _audit(request, admin, "companion_revealed", user_id, {
+        "outcome": "success",
+        "fields": "name,student_id",
+        "reauth": "true",
+    })
+    response = JSONResponse({
+        "name": person.name,
+        "student_number": person.student_number,
+        "hide_after": 60,
+    })
+    response.headers["Cache-Control"] = "no-store, private"
+    return response
 
 
 async def _account_action(request, user_id, csrf_token, action):

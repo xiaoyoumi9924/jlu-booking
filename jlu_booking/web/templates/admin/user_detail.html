@@ -3,10 +3,122 @@
 {% block admin_heading %}用户详情{% endblock %}
 {% block content %}
 <div class="admin-v8-back"><a href="/admin/users">← 返回用户列表</a></div>
+{% if notice %}<p class="admin-flash is-ok" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="error admin-flash" role="alert">{{ error }}</p>{% endif %}
 <div class="admin-v8-user-head"><span class="admin-v8-avatar"><svg class="ui-icon"><use href="#icon-user"/></svg></span><div><h2>{{ target.username }}</h2><p>网页账号 #{{ target.id }} · 注册于 {{ target.created_at.strftime('%Y-%m-%d %H:%M') }}</p></div><span class="badge status-{{ target.status }}">{{ {'active':'正常','disabled':'已停用','pending_token':'待绑定 Token','deleted':'已删除'}.get(target.status,target.status) }}</span></div>
 <div class="admin-v8-two">
   <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>账号与安全</h2><p>账号资料和访问状态</p></div><svg class="ui-icon"><use href="#icon-shield"/></svg></div><dl class="admin-v8-facts"><div><dt>登录账号</dt><dd>{{ target.username }}</dd></div><div><dt>账号状态</dt><dd>{{ target.status }}</dd></div><div><dt>创建时间</dt><dd>{{ target.created_at.strftime('%Y-%m-%d %H:%M') }}</dd></div><div><dt>最近会话活动</dt><dd>{{ activity[:16] | replace('T',' ') if activity else '暂无' }}</dd></div></dl></section>
-  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>预约必备信息</h2><p>仅显示验证状态，不展示完整凭据</p></div><svg class="ui-icon"><use href="#icon-link"/></svg></div><div class="admin-v8-info-row"><span class="admin-v7-metric-icon is-green"><svg class="ui-icon"><use href="#icon-link"/></svg></span><div><strong>JLU Token</strong><small>{{ '已绑定 · ' ~ credential.verified_at[:16] if credential else '未绑定' }}</small></div></div><div class="admin-v8-info-row"><span class="admin-v7-metric-icon is-orange"><svg class="ui-icon"><use href="#icon-users"/></svg></span><div><strong>同行人</strong><small>{{ '已验证 · ' ~ companion.verified_at[:16] if companion else '未验证' }}</small></div></div></section>
+  <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>预约必备信息</h2><p>敏感信息默认掩码，查看完整内容会记入审计</p></div><svg class="ui-icon"><use href="#icon-link"/></svg></div>
+    <div class="admin-v8-info-row"><span class="admin-v7-metric-icon is-green"><svg class="ui-icon"><use href="#icon-link"/></svg></span><div><strong>JLU Token</strong><small>{{ '已绑定 · ' ~ credential.verified_at[:16] if credential else '未绑定' }}</small></div></div>
+    <div class="admin-v8-info-row admin-companion-row"><span class="admin-v7-metric-icon is-orange"><svg class="ui-icon"><use href="#icon-users"/></svg></span><div><strong>同行人{% if masked_companion_name %} · {{ masked_companion_name }}{% endif %}</strong><small>{% if companion %}学号 <span class="admin-mono">{{ masked_student_number }}</span> · 验证于 {{ companion.verified_at[:16] | replace('T',' ') }}{% else %}未验证{% endif %}</small></div>{% if companion %}<button type="button" class="admin-link-button" data-companion-open>查看完整信息</button>{% endif %}</div>
+    <p class="admin-v8-note">姓名与学号默认掩码；查看完整信息需验证管理员密码，每次查看都会写入审计。</p>
+  </section>
 </div>
+
+<section class="admin-v8-card admin-plan" aria-labelledby="admin-plan-title">
+  <div class="admin-v8-card-head"><div><h2 id="admin-plan-title">每日自动预约</h2><p>管理员可调整方案、开启或关闭；所有变更都会写入审计记录</p></div>{% if plan %}<span class="badge {{ 'status-success' if plan.enabled else 'status-pending' }}">{{ '已开启' if plan.enabled else '未开启' }}</span>{% endif %}</div>
+  {% if plan %}
+  <div class="admin-plan-body">
+    <div class="admin-plan-summary">
+      <div class="admin-plan-facts">
+        <div><span>预约目标日</span><strong>{{ '执行次日' if plan.target_day == 'tomorrow' else '执行当天' }}</strong><small>{{ '预约明天的场地' if plan.target_day == 'tomorrow' else '预约当天的场地' }}</small></div>
+        <div><span>场馆 / 项目</span><strong>{{ plan.venue }} · {{ plan.sport }}</strong></div>
+        <div><span>首选场地</span><strong>{{ plan.preferred_court_number }} 号场</strong></div>
+        <div><span>运行模式</span><strong class="{{ 'is-real' if plan.real_booking_enabled else '' }}">{{ '真实预约' if plan.real_booking_enabled else '仅扫描' }}</strong></div>
+      </div>
+      <div class="admin-plan-priority"><span>时间优先级（从高到低）</span><div class="admin-plan-chips">{% for start,end in plan.time_priority %}<span class="admin-plan-chip"><b>{{ loop.index }}</b>{{ start }}–{{ end }}</span>{% endfor %}</div></div>
+      <p class="admin-plan-updated">最近配置更新：{{ plan.updated_at.strftime('%Y-%m-%d %H:%M') }} · {% if plan.updated_by_user_id == target.id %}用户本人{% elif plan_updated_by %}管理员 {{ plan_updated_by }}{% else %}未知{% endif %}</p>
+    </div>
+    <aside class="admin-plan-control">
+      <div class="admin-plan-switch-row">
+        <div><strong>每日自动预约</strong><small>{% if plan.enabled %}{{ plan.enabled_at.strftime('%Y-%m-%d %H:%M') if plan.enabled_at else '' }}{% if plan.enabled_at %} · {% endif %}{% if plan.enabled_by_user_id == target.id %}由用户开启{% elif plan_enabled_by %}由管理员 {{ plan_enabled_by }} 开启{% else %}已开启{% endif %}{% else %}关闭后不会生成新的每日任务{% endif %}</small></div>
+        <button type="button" class="admin-plan-switch {{ 'is-on' if plan.enabled else '' }}" role="switch" aria-checked="{{ 'true' if plan.enabled else 'false' }}" aria-label="每日自动预约" data-admin-dialog-open="{{ 'admin-plan-disable' if plan.enabled else 'admin-plan-enable' }}"></button>
+      </div>
+      <dl class="admin-plan-mini">
+        <div><dt>今日任务</dt><dd>{% if today_task %}#{{ today_task.id }} · {{ today_task_label }}{% else %}未生成{% endif %}</dd></div>
+        <div><dt>下次执行</dt><dd>{{ next_run or '—' }}</dd></div>
+      </dl>
+      {% if plan_blocking and plan.enabled %}<p class="admin-plan-block"><svg class="ui-icon"><use href="#icon-alert"/></svg>{{ plan_blocking }}</p>{% endif %}
+      <div class="admin-plan-actions">
+        <button type="button" class="admin-plan-action" data-admin-dialog-open="admin-plan-edit">编辑配置</button>
+        {% if plan.enabled %}<button type="button" class="admin-plan-action is-danger" data-admin-dialog-open="admin-plan-disable">关闭每日预约</button>{% else %}<button type="button" class="admin-plan-action is-primary" data-admin-dialog-open="admin-plan-enable">开启每日预约</button>{% endif %}
+      </div>
+      <p class="admin-plan-note">操作需填写原因，并记入审计（操作人、时间、来源 IP）。</p>
+    </aside>
+  </div>
+  {% else %}
+  <div class="admin-plan-empty"><p>该用户还没有每日预约配置。</p><button type="button" class="admin-plan-action is-primary" data-admin-dialog-open="admin-plan-edit">创建配置</button></div>
+  {% endif %}
+</section>
+
 <section class="admin-v8-card"><div class="admin-v8-card-head"><div><h2>最近预约任务</h2><p>仅显示此网页账号创建的任务</p></div><a href="/admin/tasks">全部任务 →</a></div><div class="table-wrap"><table class="admin-v8-table"><thead><tr><th>任务</th><th>场馆 / 项目</th><th>执行日</th><th>类型</th><th>状态</th><th>操作</th></tr></thead><tbody>{% for item in user_tasks %}<tr><td>#{{ item.id }}</td><td>{{ item.venue }} · {{ item.sport }}</td><td>{{ item.execution_date }}</td><td>{{ '每日自动' if item.source=='daily' else '一次性' }}</td><td><span class="badge status-{{ item.status }}">{{ item.status }}</span></td><td><a href="/admin/tasks/{{ item.id }}">查看详情 →</a></td></tr>{% else %}<tr><td colspan="6" class="admin-empty">暂无预约任务</td></tr>{% endfor %}</tbody></table></div></section>
+
+{% if companion %}
+<dialog class="admin-dialog" id="admin-companion" data-companion-dialog aria-labelledby="admin-companion-title">
+  <div class="admin-dialog-card" data-companion-password>
+    <h2 id="admin-companion-title">查看同行人完整信息</h2>
+    <p class="admin-dialog-sub">{{ target.username }} · 网页账号 #{{ target.id }}</p>
+    <dl class="admin-dialog-summary"><div><dt>姓名</dt><dd>{{ masked_companion_name }}</dd></div><div><dt>学号</dt><dd class="admin-mono">{{ masked_student_number }}</dd></div></dl>
+    <p class="admin-dialog-warn">姓名与学号属于敏感信息，验证当前管理员的登录密码后才能查看。本次查看会记录操作人、时间与来源 IP。</p>
+    <form data-companion-form data-companion-url="/admin/users/{{ target.id }}/companion/reveal" data-csrf="{{ csrf_token }}">
+      <label class="admin-dialog-field">管理员密码<input type="password" name="password" autocomplete="current-password" required></label>
+      <p class="error admin-dialog-error" data-companion-error hidden></p>
+      <div class="admin-dialog-actions"><button type="button" class="button secondary" data-dialog-close>取消</button><button type="submit">验证并查看</button></div>
+    </form>
+  </div>
+  <div class="admin-dialog-card" data-companion-result hidden>
+    <h2>同行人完整信息</h2>
+    <p class="admin-dialog-sub">{{ target.username }} · 网页账号 #{{ target.id }}</p>
+    <div class="admin-companion-identity"><span data-companion-avatar>同</span><div><strong data-companion-name></strong><small>已验证 · {{ companion.verified_at[:16] | replace('T',' ') }}</small></div></div>
+    <dl class="admin-dialog-summary"><div><dt>学号</dt><dd class="admin-mono" data-companion-number></dd></div><div><dt>使用范围</dt><dd>每日自动预约 · 手动预约</dd></div></dl>
+    <p class="admin-dialog-success">已写入审计；关闭或 60 秒后自动恢复掩码，再次查看需重新验证密码。</p>
+    <div class="admin-dialog-actions"><button type="button" class="button secondary" data-dialog-close>关闭并隐藏</button></div>
+  </div>
+</dialog>
+{% endif %}
+
+<dialog class="admin-sheet" id="admin-plan-edit" aria-labelledby="admin-plan-edit-title">
+  <form method="post" action="/admin/users/{{ target.id }}/daily-plan" data-booking-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <header class="admin-sheet-head"><div><p>管理员操作 · 影响用户每日预约</p><h2 id="admin-plan-edit-title">编辑每日预约配置</h2><small>{{ target.username }} · #{{ target.id }}</small></div><button type="button" class="admin-dialog-close" data-dialog-close aria-label="关闭">×</button></header>
+    <div class="admin-sheet-body">
+      <p class="admin-sheet-hint"><svg class="ui-icon"><use href="#icon-shield"/></svg>以管理员身份修改用户的每日预约方案。保存后会记录操作人、时间、原因与变更前后的值；不会顺带开启或关闭开关。</p>
+      <div class="booking-field"><span class="booking-label">场馆</span><div class="booking-choices" data-choice-group="venue" role="group" aria-label="场馆">{% for venue_name in venues %}<button type="button" class="booking-choice" data-booking-choice data-choice-name="venue" data-choice-value="{{ venue_name }}" aria-pressed="{{ 'true' if (plan and plan.venue == venue_name) or (not plan and venue_name == '前卫体育馆') else 'false' }}">{{ venue_name }}</button>{% endfor %}</div><label class="booking-native">场馆选择<select name="venue" data-venue-select>{% for venue_name in venues %}<option value="{{ venue_name }}" {% if (plan and plan.venue == venue_name) or (not plan and venue_name == '前卫体育馆') %}selected{% endif %}>{{ venue_name }}</option>{% endfor %}</select></label></div>
+      <div class="booking-field"><span class="booking-label">预约项目</span><div class="booking-choices" data-choice-group="sport" role="group" aria-label="预约项目">{% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<button type="button" class="booking-choice" data-booking-choice data-choice-name="sport" data-choice-value="{{ sport_name }}" data-venue="{{ venue_name }}" aria-pressed="{{ 'true' if (plan and plan.venue == venue_name and plan.sport == sport_name) or (not plan and venue_name == '前卫体育馆' and sport_name == '羽毛球') else 'false' }}" {% if (plan and plan.venue != venue_name) or (not plan and venue_name != '前卫体育馆') %}hidden{% endif %}>{{ sport_name }}</button>{% endfor %}{% endfor %}</div><label class="booking-native">项目选择<select name="sport" data-sport-select>{% for venue_name, info in venues.items() %}{% for sport_name in info.sports %}<option value="{{ sport_name }}" data-venue="{{ venue_name }}" {% if (plan and plan.venue == venue_name and plan.sport == sport_name) or (not plan and venue_name == '前卫体育馆' and sport_name == '羽毛球') %}selected{% endif %}>{{ venue_name }} · {{ sport_name }}</option>{% endfor %}{% endfor %}</select></label></div>
+      <div class="booking-two-col"><div class="booking-field"><span class="booking-label">预约目标日</span><div class="booking-choices" data-choice-group="target_day" role="group" aria-label="预约目标日"><button type="button" class="booking-choice" data-booking-choice data-choice-name="target_day" data-choice-value="today" aria-pressed="{{ 'true' if not plan or plan.target_day == 'today' else 'false' }}">执行当天</button><button type="button" class="booking-choice" data-booking-choice data-choice-name="target_day" data-choice-value="tomorrow" aria-pressed="{{ 'true' if plan and plan.target_day == 'tomorrow' else 'false' }}">执行次日</button></div><label class="booking-native">目标日选择<select name="target_day" data-target-day><option value="today" {% if not plan or plan.target_day == 'today' %}selected{% endif %}>执行当天</option><option value="tomorrow" {% if plan and plan.target_day == 'tomorrow' %}selected{% endif %}>执行次日</option></select></label></div><label class="booking-field">首选场地<input type="number" min="1" max="20" name="preferred_court_number" value="{{ plan.preferred_court_number if plan else 3 }}" required><small>例如 3 = 3 号场</small></label></div>
+      <fieldset class="booking-field booking-priority"><legend>时间优先级（从上到下优先）</legend><div class="booking-priority-list">{% for start, end in priority_options %}<div class="priority-row"><label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" {% if not plan or (start, end) in plan.time_priority %}checked{% endif %}><span>{{ start }}–{{ end }}</span></label><button type="button" class="mini secondary" data-priority-up aria-label="上移 {{ start }}–{{ end }}">↑</button><button type="button" class="mini secondary" data-priority-down aria-label="下移 {{ start }}–{{ end }}">↓</button></div>{% endfor %}</div></fieldset>
+      <fieldset class="booking-field booking-mode"><legend>运行模式</legend><div class="booking-choices"><label class="booking-radio"><input type="radio" name="mode" value="scan" {% if not plan or not plan.real_booking_enabled %}checked{% endif %}><span>仅扫描</span></label><label class="booking-radio"><input type="radio" name="mode" value="real" {% if plan and plan.real_booking_enabled %}checked{% endif %}><span>真实预约</span></label></div><p class="admin-plan-warn">真实预约会在命中后向学校系统提交，成功后不可撤销。</p></fieldset>
+      <label class="booking-field"><span class="booking-label">变更原因 <em class="admin-required">必填 · 写入审计</em></span><textarea name="reason" rows="3" maxlength="200" required placeholder="例如：用户申请调整时间优先级"></textarea></label>
+    </div>
+    <footer class="admin-sheet-foot"><p>本次变更将记录操作人、时间、原因与变更前后值。</p><div><button type="button" class="button secondary" data-dialog-close>取消</button><button type="submit">保存并记录审计</button></div></footer>
+  </form>
+</dialog>
+
+{% if plan %}
+<dialog class="admin-dialog" id="admin-plan-enable" aria-labelledby="admin-plan-enable-title">
+  <form method="post" action="/admin/users/{{ target.id }}/daily-plan/enable" class="admin-dialog-card">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2 id="admin-plan-enable-title">开启每日自动预约？</h2>
+    <p class="admin-dialog-sub">{{ target.username }} · 网页账号 #{{ target.id }}</p>
+    <dl class="admin-dialog-summary"><div><dt>方案</dt><dd>{{ plan.venue }} · {{ plan.sport }} · {{ plan.preferred_court_number }} 号场</dd></div><div><dt>目标日</dt><dd>{{ '执行次日' if plan.target_day == 'tomorrow' else '执行当天' }}</dd></div><div><dt>运行模式</dt><dd>{{ '真实预约 · 提交学校系统' if plan.real_booking_enabled else '仅扫描' }}</dd></div></dl>
+    {% if plan.real_booking_enabled %}<p class="admin-dialog-warn">开启后，下一个排程点（00:00）生成任务，07:27 执行；命中后会提交真实预约，成功后不可撤销。</p><label class="check-row admin-dialog-check"><input type="checkbox" name="confirm_real" value="yes" required>我确认开启每日真实预约</label>{% else %}<p class="admin-dialog-note">开启后会在下一个排程点生成任务，并在当天 07:27 执行。</p>{% endif %}
+    <label class="admin-dialog-field">操作原因<textarea name="reason" rows="3" maxlength="200" required placeholder="例如：用户申请补开每日自动预约"></textarea></label>
+    <p class="admin-dialog-audit"><svg class="ui-icon"><use href="#icon-shield"/></svg>将记录为「管理员开启每日预约」，包含操作人、时间、原因与来源 IP。</p>
+    <div class="admin-dialog-actions"><button type="button" class="button secondary" data-dialog-close>取消</button><button type="submit">确认开启</button></div>
+  </form>
+</dialog>
+
+<dialog class="admin-dialog" id="admin-plan-disable" aria-labelledby="admin-plan-disable-title">
+  <form method="post" action="/admin/users/{{ target.id }}/daily-plan/disable" class="admin-dialog-card">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2 id="admin-plan-disable-title">关闭每日自动预约？</h2>
+    <p class="admin-dialog-sub">{{ target.username }} · 网页账号 #{{ target.id }}</p>
+    <dl class="admin-dialog-summary"><div><dt>当前方案</dt><dd>{{ plan.venue }} · {{ plan.sport }} · {{ plan.preferred_court_number }} 号场</dd></div><div><dt>下次执行</dt><dd>{{ next_run or '—' }}</dd></div><div><dt>未启动的每日任务</dt><dd>将立即取消</dd></div><div><dt>运行中 / 已提交任务</dt><dd>不受影响</dd></div></dl>
+    <p class="admin-dialog-warn">关闭后，尚未启动的每日任务会立即取消；正在运行或已提交学校系统的任务不会撤销，仍需到学校系统核对结果。</p>
+    <label class="admin-dialog-field">操作原因<textarea name="reason" rows="3" maxlength="200" required placeholder="例如：用户申请暂停每日自动预约"></textarea></label>
+    <p class="admin-dialog-audit"><svg class="ui-icon"><use href="#icon-shield"/></svg>将记录为「管理员关闭每日预约」，包含操作人、时间、原因与来源 IP。</p>
+    <div class="admin-dialog-actions"><button type="button" class="button secondary" data-dialog-close>取消</button><button type="submit" class="danger">确认关闭</button></div>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}

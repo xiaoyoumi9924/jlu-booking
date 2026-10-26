@@ -21,6 +21,10 @@ ALLOWED_ACTIONS = {
     "token_revealed",
     "admin_reauthenticated",
     "admin_reauthentication_failed",
+    "daily_plan_updated",
+    "daily_plan_enabled",
+    "daily_plan_disabled",
+    "companion_revealed",
 }
 ALLOWED_METADATA_KEYS = {
     "task_id",
@@ -28,6 +32,14 @@ ALLOWED_METADATA_KEYS = {
     "outcome",
     "reason",
     "target_username",
+    "before",
+    "after",
+    "changed_fields",
+    "plan_snapshot",
+    "cancelled_task_ids",
+    "enabled_at",
+    "fields",
+    "reauth",
 }
 SENSITIVE_MARKERS = {
     "token",
@@ -65,7 +77,9 @@ class AuditService:
             key_is_sensitive = any(
                 marker in normalized_key for marker in SENSITIVE_MARKERS
             )
-            value_is_sensitive = key != "target_username" and any(
+            # Operator reasons may legitimately mention a token ("Token 失效"),
+            # so only free-form reason text is exempt from the value scan.
+            value_is_sensitive = key not in {"target_username", "reason"} and any(
                 marker in lowered_value for marker in SENSITIVE_MARKERS
             )
             if key not in ALLOWED_METADATA_KEYS or key_is_sensitive or value_is_sensitive:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -29,6 +30,8 @@ class DailyPlan:
     real_booking_enabled: bool
     created_at: datetime
     updated_at: datetime
+    enabled_by_user_id: int | None
+    updated_by_user_id: int | None
 
 
 class DailyPlanService:
@@ -48,6 +51,8 @@ class DailyPlanService:
             real_booking_enabled=bool(row["real_booking_enabled"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            enabled_by_user_id=row["enabled_by_user_id"],
+            updated_by_user_id=row["updated_by_user_id"],
         )
 
     def get_for_user(self, user_id: int) -> DailyPlan | None:
@@ -80,9 +85,18 @@ class DailyPlanService:
             return "目标日期已有手动预约或结果不明，未安排自动任务。"
         return None
 
-    def save(self, user_id: int, draft: TaskDraft, *, now: datetime) -> DailyPlan:
+    def save(
+        self,
+        user_id: int,
+        draft: TaskDraft,
+        *,
+        now: datetime,
+        actor_id: int | None = None,
+        on_success: Callable[[DailyPlan], None] | None = None,
+    ) -> DailyPlan:
         local = require_aware(now).astimezone(BEIJING)
         stamp = local.isoformat()
+        actor = int(actor_id) if actor_id is not None else int(user_id)
         with transaction(self._connection, immediate=True):
             self._tasks._require_eligible_user(user_id)
             values = self._tasks._normalize_draft(user_id, draft)
@@ -91,19 +105,22 @@ class DailyPlanService:
                 self._connection.execute(
                     "INSERT INTO daily_booking_plans (user_id,enabled,target_day,venue,sport,"
                     "companion_id,preferred_court_number,time_priority_json,real_booking_enabled,"
-                    "created_at,updated_at) VALUES (?,0,?,?,?,?,?,?,?,?,?)",
+                    "created_at,updated_at,updated_by_user_id) "
+                    "VALUES (?,0,?,?,?,?,?,?,?,?,?,?)",
                     (user_id, values["target_day"], values["venue"], values["sport"],
                      values["companion_id"], values["preferred_court_number"],
-                     values["time_priority_json"], values["real_booking_enabled"], stamp, stamp),
+                     values["time_priority_json"], values["real_booking_enabled"], stamp, stamp,
+                     actor),
                 )
             else:
                 self._connection.execute(
                     "UPDATE daily_booking_plans SET target_day=?,venue=?,sport=?,companion_id=?,"
-                    "preferred_court_number=?,time_priority_json=?,real_booking_enabled=?,updated_at=? "
-                    "WHERE id=?",
+                    "preferred_court_number=?,time_priority_json=?,real_booking_enabled=?,updated_at=?,"
+                    "updated_by_user_id=? WHERE id=?",
                     (values["target_day"], values["venue"], values["sport"],
                      values["companion_id"], values["preferred_court_number"],
-                     values["time_priority_json"], values["real_booking_enabled"], stamp, existing.id),
+                     values["time_priority_json"], values["real_booking_enabled"], stamp, actor,
+                     existing.id),
                 )
                 if local.time() < SCHEDULER_START:
                     self._connection.execute(
@@ -115,11 +132,22 @@ class DailyPlanService:
                          values["time_priority_json"], values["real_booking_enabled"], stamp,
                          existing.id, local.date().isoformat()),
                     )
+            if on_success is not None:
+                on_success(self.get_for_user(user_id))
         return self.get_for_user(user_id)
 
-    def set_enabled(self, user_id: int, enabled: bool, *, now: datetime) -> DailyPlan:
+    def set_enabled(
+        self,
+        user_id: int,
+        enabled: bool,
+        *,
+        now: datetime,
+        actor_id: int | None = None,
+        on_success: Callable[[DailyPlan], None] | None = None,
+    ) -> DailyPlan:
         local = require_aware(now).astimezone(BEIJING)
         stamp = local.isoformat()
+        actor = int(actor_id) if actor_id is not None else int(user_id)
         with transaction(self._connection, immediate=True):
             plan = self.get_for_user(user_id)
             if plan is None:
@@ -127,9 +155,11 @@ class DailyPlanService:
             if enabled:
                 self._tasks._require_eligible_user(user_id)
             enabled_at = stamp if enabled and not plan.enabled else plan.enabled_at.isoformat() if plan.enabled_at else None
+            enabled_by = actor if enabled and not plan.enabled else plan.enabled_by_user_id
             self._connection.execute(
-                "UPDATE daily_booking_plans SET enabled=?,enabled_at=?,updated_at=? WHERE id=?",
-                (int(enabled), enabled_at, stamp, plan.id),
+                "UPDATE daily_booking_plans SET enabled=?,enabled_at=?,enabled_by_user_id=?,"
+                "updated_at=?,updated_by_user_id=? WHERE id=?",
+                (int(enabled), enabled_at, enabled_by, stamp, actor, plan.id),
             )
             if not enabled:
                 self._connection.execute(
@@ -137,6 +167,8 @@ class DailyPlanService:
                     "WHERE daily_plan_id=? AND status='scheduled'",
                     (stamp, stamp, plan.id),
                 )
+            if on_success is not None:
+                on_success(self.get_for_user(user_id))
         return self.get_for_user(user_id)
 
     def materialize(self, now: datetime) -> tuple[int, ...]:
