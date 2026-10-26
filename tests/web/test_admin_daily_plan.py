@@ -148,7 +148,7 @@ def test_user_detail_masks_companion_and_shows_plan(web):
     assert 'id="admin-plan-edit"' in page.text
     assert 'id="admin-plan-disable"' in page.text
     assert 'data-companion-open' in page.text
-    assert "2026-09-23 06:30" in page.text
+    assert "09-23 06:30" in page.text
 
 
 def test_admin_save_plan_is_audited_and_unchanged_is_skipped(web):

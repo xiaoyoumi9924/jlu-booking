@@ -15,39 +15,38 @@
   </section>
 </div>
 
-<section class="admin-v8-card admin-plan" aria-labelledby="admin-plan-title">
-  <div class="admin-v8-card-head"><div><h2 id="admin-plan-title">每日自动预约</h2><p>管理员可调整方案、开启或关闭；所有变更都会写入审计记录</p></div>{% if plan %}<span class="badge {{ 'status-success' if plan.enabled else 'status-pending' }}">{{ '已开启' if plan.enabled else '未开启' }}</span>{% endif %}</div>
+<section class="dp-card" aria-labelledby="admin-plan-title">
+  <header class="dp-head">
+    <div><h2 id="admin-plan-title">每日自动预约</h2><p>管理员可调整方案、开启或关闭；操作需填写原因，所有变更都会写入审计记录</p></div>
+    {% if plan %}<div class="dp-toggle">
+      <div><strong class="{{ 'is-off' if not plan.enabled }}">{{ '已开启' if plan.enabled else '已关闭' }}</strong><small>{% if plan.enabled %}{% if plan.enabled_by_user_id == target.id %}用户本人{% elif plan_enabled_by %}管理员 {{ plan_enabled_by }}{% else %}管理员{% endif %}{% if plan.enabled_at %} · {{ plan.enabled_at.strftime('%m-%d %H:%M') }}{% endif %}{% else %}关闭后不会生成新的每日任务{% endif %}</small></div>
+      <button type="button" class="dp-switch {{ 'is-on' if plan.enabled else '' }}" role="switch" aria-checked="{{ 'true' if plan.enabled else 'false' }}" aria-label="每日自动预约" data-admin-dialog-open="{{ 'admin-plan-disable' if plan.enabled else 'admin-plan-enable' }}"></button>
+    </div>{% endif %}
+  </header>
   {% if plan %}
-  <div class="admin-plan-body">
-    <div class="admin-plan-summary">
-      <div class="admin-plan-facts">
-        <div><span>预约目标日</span><strong>{{ '执行次日' if plan.target_day == 'tomorrow' else '执行当天' }}</strong><small>{{ '预约明天的场地' if plan.target_day == 'tomorrow' else '预约当天的场地' }}</small></div>
-        <div><span>场馆 / 项目</span><strong>{{ plan.venue }} · {{ plan.sport }}</strong></div>
-        <div><span>首选场地</span><strong>{{ plan.preferred_court_number }} 号场</strong></div>
-        <div><span>运行模式</span><strong class="{{ 'is-real' if plan.real_booking_enabled else '' }}">{{ '真实预约' if plan.real_booking_enabled else '仅扫描' }}</strong></div>
-      </div>
-      <div class="admin-plan-priority"><span>时间优先级（从高到低）</span><div class="admin-plan-chips">{% for start,end in plan.time_priority %}<span class="admin-plan-chip"><b>{{ loop.index }}</b>{{ start }}–{{ end }}</span>{% endfor %}</div></div>
-      <p class="admin-plan-updated">最近配置更新：{{ plan.updated_at.strftime('%Y-%m-%d %H:%M') }} · {% if plan.updated_by_user_id == target.id %}用户本人{% elif plan_updated_by %}管理员 {{ plan_updated_by }}{% else %}未知{% endif %}</p>
+  <div class="dp-body">
+    <div class="dp-facts">
+      <div class="dp-fact"><span>预约目标日</span><strong>{{ '执行次日' if plan.target_day == 'tomorrow' else '执行当天' }}</strong><small>{{ '预约明天的场地' if plan.target_day == 'tomorrow' else '预约当天的场地' }}</small></div>
+      <div class="dp-fact"><span>场馆 / 项目</span><strong>{{ plan.venue }} · {{ plan.sport }}</strong></div>
+      <div class="dp-fact"><span>首选场地</span><strong>{{ plan.preferred_court_number }} 号场</strong></div>
+      <div class="dp-fact"><span>运行模式</span><strong class="{{ 'real' if plan.real_booking_enabled else '' }}">{{ '真实预约' if plan.real_booking_enabled else '仅扫描' }}</strong></div>
     </div>
-    <aside class="admin-plan-control">
-      <div class="admin-plan-switch-row">
-        <div><strong>每日自动预约</strong><small>{% if plan.enabled %}{{ plan.enabled_at.strftime('%Y-%m-%d %H:%M') if plan.enabled_at else '' }}{% if plan.enabled_at %} · {% endif %}{% if plan.enabled_by_user_id == target.id %}由用户开启{% elif plan_enabled_by %}由管理员 {{ plan_enabled_by }} 开启{% else %}已开启{% endif %}{% else %}关闭后不会生成新的每日任务{% endif %}</small></div>
-        <button type="button" class="admin-plan-switch {{ 'is-on' if plan.enabled else '' }}" role="switch" aria-checked="{{ 'true' if plan.enabled else 'false' }}" aria-label="每日自动预约" data-admin-dialog-open="{{ 'admin-plan-disable' if plan.enabled else 'admin-plan-enable' }}"></button>
+    <div class="dp-priority"><span>时间优先级</span><div class="dp-chips">{% for start,end in plan.time_priority %}<span class="dp-chip{{ ' is-first' if loop.first else '' }}"><b>{{ loop.index }}</b>{{ start }}–{{ end }}</span>{% endfor %}</div></div>
+    {% if plan_blocking and plan.enabled %}<p class="dp-block"><svg class="ui-icon"><use href="#icon-alert"/></svg>{{ plan_blocking }}</p>{% endif %}
+    <div class="dp-meta">
+      <div class="dp-stats">
+        <div class="dp-stat"><span>今日任务</span><strong>{% if today_task %}#{{ today_task.id }} · {{ today_task_label }}{% else %}未生成{% endif %}</strong></div>
+        <div class="dp-stat"><span>下次执行</span><strong>{{ next_run or '—' }}</strong></div>
+        <div class="dp-stat"><span>最近更新</span><strong>{{ plan.updated_at.strftime('%m-%d %H:%M') }} · {% if plan.updated_by_user_id == target.id %}用户本人{% elif plan_updated_by %}管理员 {{ plan_updated_by }}{% else %}未知{% endif %}</strong></div>
       </div>
-      <dl class="admin-plan-mini">
-        <div><dt>今日任务</dt><dd>{% if today_task %}#{{ today_task.id }} · {{ today_task_label }}{% else %}未生成{% endif %}</dd></div>
-        <div><dt>下次执行</dt><dd>{{ next_run or '—' }}</dd></div>
-      </dl>
-      {% if plan_blocking and plan.enabled %}<p class="admin-plan-block"><svg class="ui-icon"><use href="#icon-alert"/></svg>{{ plan_blocking }}</p>{% endif %}
-      <div class="admin-plan-actions">
-        <button type="button" class="admin-plan-action" data-admin-dialog-open="admin-plan-edit">编辑配置</button>
-        {% if plan.enabled %}<button type="button" class="admin-plan-action is-danger" data-admin-dialog-open="admin-plan-disable">关闭每日预约</button>{% else %}<button type="button" class="admin-plan-action is-primary" data-admin-dialog-open="admin-plan-enable">开启每日预约</button>{% endif %}
+      <div class="dp-actions">
+        <button type="button" class="dp-btn {{ 'primary' if plan.enabled else 'secondary' }}" data-admin-dialog-open="admin-plan-edit">编辑配置</button>
+        {% if plan.enabled %}<button type="button" class="dp-btn danger" data-admin-dialog-open="admin-plan-disable">关闭每日预约</button>{% else %}<button type="button" class="dp-btn primary" data-admin-dialog-open="admin-plan-enable">开启每日预约</button>{% endif %}
       </div>
-      <p class="admin-plan-note">操作需填写原因，并记入审计（操作人、时间、来源 IP）。</p>
-    </aside>
+    </div>
   </div>
   {% else %}
-  <div class="admin-plan-empty"><p>该用户还没有每日预约配置。</p><button type="button" class="admin-plan-action is-primary" data-admin-dialog-open="admin-plan-edit">创建配置</button></div>
+  <div class="dp-empty"><p>该用户还没有每日预约配置。</p><button type="button" class="dp-btn primary" data-admin-dialog-open="admin-plan-edit">创建配置</button></div>
   {% endif %}
 </section>
 
