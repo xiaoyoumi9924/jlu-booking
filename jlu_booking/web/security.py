@@ -67,6 +67,15 @@ class CredentialCipher:
         return hmac.digest(self._blind_key, normalized, "sha256")
 
 
+def mask_name(value: str) -> str:
+    """Keep only the family-name character for administrator lists."""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+    return text[0] + "*" * max(1, len(text) - 1)
+
+
 def mask_secret(value: str) -> str:
     """Return a useful but never complete representation of a private value."""
 

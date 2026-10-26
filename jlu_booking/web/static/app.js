@@ -327,3 +327,99 @@ if (savedDailyPlan && typeof window.history?.replaceState === "function") {
   window.history.replaceState(null, "", `${window.location.pathname || ""}${cleanedSearch}${window.location.hash || ""}`);
 }
 if (savedDailyPlan) openDailyEnableDialog();
+// Administrator dialogs for a user's daily plan.
+for (const opener of document.querySelectorAll("[data-admin-dialog-open]")) {
+  opener.addEventListener("click", () => {
+    const dialog = document.getElementById(opener.dataset.adminDialogOpen);
+    if (dialog && typeof dialog.showModal === "function" && !dialog.open) dialog.showModal();
+  });
+}
+for (const closer of document.querySelectorAll("[data-dialog-close]")) {
+  closer.addEventListener("click", () => closer.closest("dialog")?.close());
+}
+for (const dialog of document.querySelectorAll("dialog.admin-dialog, dialog.admin-sheet")) {
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+}
+const adminPlanForm = document.querySelector(".admin-sheet form");
+adminPlanForm?.addEventListener("submit", (event) => {
+  if (!adminPlanForm.querySelector('input[name="priority"]:checked')) {
+    event.preventDefault();
+    window.alert("请至少选择一个时间优先级。");
+  }
+});
+
+// Companion name and student number stay masked until the admin re-enters a password.
+const companionDialog = document.querySelector("[data-companion-dialog]");
+const companionPasswordView = companionDialog?.querySelector("[data-companion-password]");
+const companionResultView = companionDialog?.querySelector("[data-companion-result]");
+const companionForm = companionDialog?.querySelector("[data-companion-form]");
+const companionError = companionDialog?.querySelector("[data-companion-error]");
+let companionHideTimer = null;
+function resetCompanionView() {
+  if (!companionDialog) return;
+  clearTimeout(companionHideTimer);
+  companionHideTimer = null;
+  if (companionPasswordView) companionPasswordView.hidden = false;
+  if (companionResultView) companionResultView.hidden = true;
+  if (companionError) {
+    companionError.hidden = true;
+    companionError.textContent = "";
+  }
+  companionForm?.reset();
+}
+for (const opener of document.querySelectorAll("[data-companion-open]")) {
+  opener.addEventListener("click", () => {
+    if (!companionDialog) return;
+    resetCompanionView();
+    if (typeof companionDialog.showModal === "function") companionDialog.showModal();
+    companionForm?.elements.password.focus();
+  });
+}
+companionForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!companionForm) return;
+  const submit = companionForm.querySelector('[type="submit"]');
+  const body = new URLSearchParams({
+    csrf_token: companionForm.dataset.csrf || "",
+    password: companionForm.elements.password.value,
+  });
+  submit.disabled = true;
+  if (companionError) companionError.hidden = true;
+  try {
+    const response = await fetch(companionForm.dataset.companionUrl, {
+      method: "POST", body, cache: "no-store",
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "验证失败，请重试。");
+    if (!companionDialog?.open) return;
+    const name = String(payload.name || "");
+    window.JLUBooking.setText(companionDialog.querySelector("[data-companion-name]"), name);
+    window.JLUBooking.setText(companionDialog.querySelector("[data-companion-avatar]"), name.slice(0, 1));
+    window.JLUBooking.setText(companionDialog.querySelector("[data-companion-number]"), payload.student_number || "");
+    if (companionPasswordView) companionPasswordView.hidden = true;
+    if (companionResultView) companionResultView.hidden = false;
+    companionForm.elements.password.value = "";
+    clearTimeout(companionHideTimer);
+    companionHideTimer = setTimeout(() => {
+      if (companionDialog?.open) companionDialog.close();
+    }, Number(payload.hide_after || 60) * 1000);
+  } catch (failure) {
+    if (!companionDialog?.open) return;
+    if (companionError) {
+      companionError.textContent = failure.message || "暂时无法查看同行人信息。";
+      companionError.hidden = false;
+    }
+    companionForm.elements.password.value = "";
+  } finally {
+    submit.disabled = false;
+  }
+});
+companionDialog?.addEventListener("close", () => {
+  resetCompanionView();
+  if (companionResultView) companionResultView.hidden = true;
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && companionDialog?.open) companionDialog.close();
+});
