@@ -2,6 +2,7 @@
 {% block title %}自动预约 · JLU 体育馆预约{% endblock %}
 {% block content %}
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if saved and plan and not plan.enabled %}<noscript><p class="workspace-notice" role="status">配置已保存。每日自动预约尚未开启，请点击“开启每日自动预约”。</p></noscript>{% endif %}
 <section class="daily-status-panel" aria-labelledby="daily-status-heading">
   <div class="daily-status-main"><p class="eyebrow">自动预约</p><h2 id="daily-status-heading">{{ status_text }}</h2>{% if task %}<a href="/tasks/{{ task.id }}">查看当前任务</a>{% endif %}</div>
   <div class="daily-status-action">
@@ -35,9 +36,21 @@
       <fieldset class="booking-field booking-priority"><legend>重点时间（从上到下优先）</legend><div class="booking-priority-list">
         {% for start, end in priority_options %}<div class="priority-row"><label class="check-row"><input type="checkbox" name="priority" value="{{ start }}|{{ end }}" {% if not plan or (start, end) in plan.time_priority %}checked{% endif %}><span>{{ start }}–{{ end }}</span></label><button type="button" class="mini secondary" data-priority-up aria-label="上移 {{ start }}–{{ end }}">↑</button><button type="button" class="mini secondary" data-priority-down aria-label="下移 {{ start }}–{{ end }}">↓</button></div>{% endfor %}
       </div></fieldset>
-      <fieldset class="booking-field booking-mode"><legend>运行模式</legend><div class="booking-choices"><label class="booking-radio"><input type="radio" name="mode" value="scan" {% if not plan or not plan.real_booking_enabled %}checked{% endif %}><span>仅扫描</span></label><label class="booking-radio"><input type="radio" name="mode" value="real" {% if plan and plan.real_booking_enabled %}checked{% endif %}><span>真实预约</span></label></div><label class="check-row daily-confirm"><input type="checkbox" name="confirm_real" value="yes">确认保存真实预约设置</label></fieldset>
+      <fieldset class="booking-field booking-mode"><legend>运行模式</legend><div class="booking-choices"><label class="booking-radio"><input type="radio" name="mode" value="scan" {% if not plan or not plan.real_booking_enabled %}checked{% endif %}><span>仅扫描</span></label><label class="booking-radio"><input type="radio" name="mode" value="real" {% if plan and plan.real_booking_enabled %}checked{% endif %}><span>真实预约</span></label></div></fieldset>
     </div>
-    <div class="booking-submit-bar"><span>保存设置不会自动开启每日执行</span><button type="submit">保存每日配置</button></div>
+    <div class="booking-submit-bar"><span>保存后可选择开启每日自动预约</span><button type="submit">保存每日配置</button></div>
   </form>
 </section>
+{% if plan and not plan.enabled %}
+<dialog class="daily-enable-dialog" data-daily-enable-dialog aria-labelledby="daily-enable-title" aria-describedby="daily-enable-description">
+  <form method="post" action="/daily-plan/enable">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2 id="daily-enable-title">每日自动预约还未开启</h2>
+    <p id="daily-enable-description">{% if saved %}配置已保存。{% endif %}开启后，系统会在每个执行日自动执行预约，避免错过名额。</p>
+    {% if plan.real_booking_enabled %}<p class="daily-enable-warning">当前为真实预约模式，开启后会向学校系统提交真实预约。</p>
+    <label class="check-row"><input type="checkbox" name="confirm_real" value="yes" required>我确认开启每日真实预约</label>{% endif %}
+    <div class="daily-enable-actions"><button type="button" class="secondary" data-daily-enable-dismiss>暂不开启</button><button type="submit">立即开启</button></div>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}

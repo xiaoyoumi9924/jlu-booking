@@ -302,3 +302,28 @@ for (const button of document.querySelectorAll("[data-clear-results]")) {
     window.JLUBooking.setText(document.querySelector("[data-results-caption]"), "查询后将在这里展示空闲时段");
   });
 }
+
+// The daily plan stays disabled after saving until the user explicitly switches it on.
+const dailyEnableDialog = document.querySelector("[data-daily-enable-dialog]");
+const openDailyEnableDialog = () => {
+  if (!dailyEnableDialog) return;
+  if (typeof dailyEnableDialog.showModal === "function") {
+    if (!dailyEnableDialog.open) dailyEnableDialog.showModal();
+  } else dailyEnableDialog.setAttribute("open", "");
+};
+if (dailyEnableDialog) {
+  dailyEnableDialog.querySelector("[data-daily-enable-dismiss]")?.addEventListener("click", () => dailyEnableDialog.close());
+  dailyEnableDialog.addEventListener("click", (event) => {
+    if (event.target === dailyEnableDialog) dailyEnableDialog.close();
+  });
+}
+const dailyPlanSearch = window.location?.search || "";
+const savedDailyPlan = /(?:^|[?&])saved=1(?:&|$)/.test(dailyPlanSearch);
+if (savedDailyPlan && typeof window.history?.replaceState === "function") {
+  const cleanedSearch = dailyPlanSearch
+    .replace(/([?&])saved=1(?=&|$)/g, "")
+    .replace(/^&/, "?")
+    .replace(/[?&]$/, "");
+  window.history.replaceState(null, "", `${window.location.pathname || ""}${cleanedSearch}${window.location.hash || ""}`);
+}
+if (savedDailyPlan) openDailyEnableDialog();

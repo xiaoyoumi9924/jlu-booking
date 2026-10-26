@@ -79,15 +79,31 @@ def test_daily_plan_form_and_toggle_materialize_and_cancel(web):
     assert page.status_code == 200
     assert 'value="scan"' in page.text and 'value="real"' in page.text
     assert 'data-venue="宋治平体育馆"' in page.text
+    assert "保存后可选择开启每日自动预约" in page.text
+    assert "确认保存真实预约设置" not in page.text
+    assert 'class="daily-status-panel"' in page.text
     assert "保存配置后可开启" in page.text
-    assert "未开启" in page.text
+    assert 'id="daily-status-heading">未开启</h2>' in page.text
+    assert "当前执行日未获得名额" not in page.text
+    assert "data-daily-enable-dialog" not in page.text
     saved = client.post("/daily-plan", data=form_data(csrf(page)), follow_redirects=False)
     assert saved.status_code == 303
-    assert "保存每日配置" in client.get("/daily-plan").text
+    assert saved.headers["location"] == "/daily-plan?saved=1"
+    prompt = client.get("/daily-plan?saved=1")
+    assert "保存每日配置" in prompt.text
+    assert 'id="daily-status-heading">未开启</h2>' in prompt.text
+    assert "data-daily-enable-dialog" in prompt.text
+    assert "每日自动预约还未开启" in prompt.text
+    assert "暂不开启" in prompt.text and "立即开启" in prompt.text
     plan = services.daily_plans.get_for_user(alice_id)
     assert plan is not None and plan.enabled is False and plan.real_booking_enabled is False
+    assert "我确认开启每日真实预约" not in prompt.text
     enabled = client.post("/daily-plan/enable", data={"csrf_token": csrf(client.get("/daily-plan"))}, follow_redirects=False)
     assert enabled.status_code == 303
+    assert enabled.headers["location"] == "/daily-plan"
+    enabled_page = client.get("/daily-plan")
+    assert 'id="daily-status-heading">已排程</h2>' in enabled_page.text
+    assert 'action="/daily-plan/disable"' in enabled_page.text
     task = services.connection.execute(
         "SELECT id,status,source,target_day FROM booking_tasks WHERE user_id=?", (alice_id,)
     ).fetchone()
@@ -96,15 +112,15 @@ def test_daily_plan_form_and_toggle_materialize_and_cancel(web):
     assert disabled.status_code == 303
     assert services.connection.execute("SELECT status FROM booking_tasks WHERE id=?", (task["id"],)).fetchone()[0] == "cancelled"
     assert services.daily_plans.get_for_user(alice_id).enabled is False
-    without_confirmation = client.post(
-        "/daily-plan", data=form_data(csrf(client.get("/daily-plan")), mode="real")
+    real = client.post(
+        "/daily-plan", data=form_data(csrf(client.get("/daily-plan")), mode="real"),
+        follow_redirects=False,
     )
-    assert without_confirmation.status_code == 400
-    real = client.post("/daily-plan", data=form_data(
-        csrf(client.get("/daily-plan")), mode="real", confirm_real="yes"
-    ), follow_redirects=False)
     assert real.status_code == 303
     assert services.daily_plans.get_for_user(alice_id).real_booking_enabled is True
+    real_prompt = client.get("/daily-plan?saved=1")
+    assert "当前为真实预约模式" in real_prompt.text
+    assert "我确认开启每日真实预约" in real_prompt.text
     no_ack = client.post("/daily-plan/enable", data={"csrf_token": csrf(client.get("/daily-plan"))})
     assert no_ack.status_code == 400
     assert services.daily_plans.get_for_user(alice_id).enabled is False
@@ -113,6 +129,17 @@ def test_daily_plan_form_and_toggle_materialize_and_cancel(web):
     }, follow_redirects=False)
     assert yes_ack.status_code == 303
     assert services.daily_plans.get_for_user(alice_id).enabled is True
+
+
+def test_enabled_plan_without_current_task_shows_started_status(web):
+    client, services, alice_id = web
+    login(client, "alice")
+    page = client.get("/daily-plan")
+    client.post("/daily-plan", data=form_data(csrf(page)))
+    services.daily_plans.set_enabled(alice_id, True, now=NOW)
+    page = client.get("/daily-plan")
+    assert 'id="daily-status-heading">已启动</h2>' in page.text
+    assert "当前执行日未获得名额" not in page.text
 
 
 def test_daily_plan_access_csrf_and_mutation_throttle(web):

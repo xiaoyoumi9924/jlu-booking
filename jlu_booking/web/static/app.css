@@ -841,3 +841,19 @@ body:has(.admin-nav) { background: #f2f7ff; }
 @media (max-width: 1180px) { .admin-stats-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .admin-stats-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .admin-stats-main { grid-template-columns: 1fr; } .admin-nav-inner { min-height: 0; } .admin-nav-foot { display: block; margin-top: 20px; } }
 @media (max-width: 650px) { .admin-stats-filters, .admin-stats-metrics { grid-template-columns: 1fr; } .admin-stats-date > div { flex-wrap: wrap; } .admin-stats-date input { flex-basis: calc(50% - 18px); } .admin-stats-chart { min-height: 245px; } .admin-stats-column { height: 165px; } }
+
+/* Prompt on the daily plan page after saving while the switch is still off. */
+.daily-enable-dialog { width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid #d3e1f5; border-radius: 16px; box-shadow: 0 26px 80px #122e5b45; color: #172033; }
+.daily-enable-dialog::backdrop { background: #0c234b82; }
+.daily-enable-dialog form { display: grid; gap: 14px; padding: 26px 28px 24px; }
+.daily-enable-dialog h2 { margin: 0; color: #153261; font-size: 1.25rem; }
+.daily-enable-dialog p { margin: 0; color: #5d7190; font-size: .87rem; line-height: 1.6; }
+.daily-enable-dialog .daily-enable-warning { padding: 10px 12px; border-left: 3px solid #c47a16; background: #fff6e6; color: #744a0e; font-size: .82rem; }
+.daily-enable-dialog .check-row { margin: 0; font-size: .84rem; font-weight: 700; color: #324e73; }
+.daily-enable-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.daily-enable-actions button { min-height: 40px; padding: 9px 18px; border-radius: 10px; }
+@media (max-width: 700px) {
+  .daily-enable-dialog form { padding: 22px 20px 20px; }
+  .daily-enable-actions { flex-direction: column-reverse; }
+  .daily-enable-actions button { width: 100%; }
+}

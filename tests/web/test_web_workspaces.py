@@ -364,9 +364,12 @@ def test_daily_booking_explains_separate_save_and_enable_steps(workspace):
     html = client.get("/daily-plan").text
     assert 'class="daily-status-panel"' in html
     assert html.index('class="daily-status-panel"') < html.index('action="/daily-plan"')
+    assert "当前执行日未获得名额" not in html
+    assert "确认保存真实预约设置" not in html
+    assert "保存配置后可开启" in html
     assert 'action="/daily-plan"' in html
     assert "保存每日配置" in html
-    assert "保存配置后可开启" in html
+    assert "保存后可选择开启每日自动预约" in html
     assert 'data-choice-group="venue"' in html
     assert 'data-choice-group="sport"' in html
 

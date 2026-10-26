@@ -30,8 +30,6 @@ def _context(request, session, user, *, error=None):
     now = now_beijing()
     execution_date = services.tasks.next_execution_date(now)
     plan = services.daily_plans.get_for_user(user.id)
-    target_day = plan.target_day if plan else "today"
-    target_date = services.tasks.target_date(execution_date, target_day)
     task = None
     if plan:
         row = services.connection.execute(
@@ -52,6 +50,8 @@ def _context(request, session, user, *, error=None):
         companion_name = companion.name
     except CredentialError:
         companion_name = None
+    priorities = list(plan.time_priority) if plan else list(DEFAULT_TIME_PRIORITY)
+    priorities.extend(item for item in DEFAULT_TIME_PRIORITY if item not in priorities)
     if plan and not plan.enabled and task and task.status == "running":
         status_text = "已关闭；当前任务仍在运行"
     elif not plan or not plan.enabled:
@@ -65,14 +65,13 @@ def _context(request, session, user, *, error=None):
     elif task and task.status != "cancelled":
         status_text = f"最近结果：{task.status}"
     else:
-        status_text = "已开启，当前执行日未获得名额"
-    priorities = list(plan.time_priority) if plan else list(DEFAULT_TIME_PRIORITY)
-    priorities.extend(item for item in DEFAULT_TIME_PRIORITY if item not in priorities)
+        status_text = "已启动"
     return {
         "csrf_token": session.csrf_token, "user": user, "plan": plan, "task": task,
         "error": error, "venues": VENUES, "priority_options": priorities,
-        "execution_date": execution_date, "target_date": target_date,
         "companion_name": companion_name, "status_text": status_text,
+        "blocking_reason": blocking_reason,
+        "saved": request.query_params.get("saved") == "1",
     }
 
 
@@ -100,7 +99,6 @@ async def save_daily_plan(
     preferred_court_number: str = Form(...),
     priority: list[str] = Form(...),
     mode: str = Form("scan"),
-    confirm_real: str = Form(""),
     csrf_token: str = Form(""),
 ):
     session, user, redirect = _owner(request)
@@ -110,8 +108,6 @@ async def save_daily_plan(
     now = now_beijing()
     _mutate_allowed(request, user.id, now)
     try:
-        if mode == "real" and confirm_real != "yes":
-            raise ValueError("保存真实预约模式前，请明确确认将提交真实预约。")
         draft = _draft(
             user, request, target_day, venue, sport,
             preferred_court_number, priority, mode,
@@ -119,7 +115,7 @@ async def save_daily_plan(
         request.app.state.services.daily_plans.save(user.id, draft, now=now)
     except (CredentialError, TaskError, ValueError) as exc:
         return _render(request, session, user, error=str(exc), status=400)
-    return RedirectResponse("/daily-plan", 303)
+    return RedirectResponse("/daily-plan?saved=1", 303)
 
 
 @router.post("/enable")
