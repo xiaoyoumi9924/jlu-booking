@@ -94,7 +94,8 @@ Linux：运行 `JLU Booking`
 - [安全说明](SECURITY.md)
 
 ## 网站（测试版）
-目前仅支持15人，且为邀请制，需邀请码才能进行注册，注册前请联系管理员fxyf00@qq.com
+
+目前仅支持15人，且为邀请制，需邀请码才能进行注册，注册前请联系管理员 fxyf00@qq.com<br>
 [https://booking.meiyh9924.xyz/](https://booking.meiyh9924.xyz/)
 
 
