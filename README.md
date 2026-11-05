@@ -65,19 +65,30 @@ Linux：运行 `JLU Booking`
 2. 确认同行人学工号；需要真实提交时再选择“真实预约”。
 3. 点击 **立即启动预约**。任务会立即查询并持续尝试，直到成功、遇到明确异常或手动停止；运行进度显示在任务详情页。
 
-桌面即时任务按所选时间段与场地优先级尝试；“仅扫描”不会提交预约。“真实预约”会向学校系统提交，请确认模式后再启动。每天 07:27 的预热、高速和 07:33 截止规则只适用于下方的本地定时运行方式。详细规则见 [完整使用说明](docs/usage.md)。
+“仅扫描”不会提交预约。“真实预约”会向学校系统提交，请确认模式后再启动。详细规则见 [完整使用说明](docs/usage.md)。
 
 
 
-### 4. 每天定时运行（可选）
+### 4. 本地部署（可选）
 
-桌面版不内置“自动预约”模块。如果想要电脑每天早上 **07:27 自动启动预约任务**，可以在本地部署 Web 版，并按照自己的操作系统查看对应教程：
+桌面版不内置“自动预约”模块。如果想要电脑每天早上 **自动启动预约任务**，可以在本地部署 Web 版。
+先安装 [Git](https://git-scm.com/) 和 [Python 3.10+](https://www.python.org/downloads/)。
 
-- [Windows 自动运行教程](docs/automation-windows.md)
-- [macOS 自动运行教程](docs/automation-macos.md)
-- [Linux 自动运行教程](docs/automation-linux.md)
+**macOS / Linux**
 
-部署前请阅读 [Web 版服务器部署与运维](docs/web-deployment.md)。建议把文件交给 DeepSeek 或 ChatGPT，使用 AI 辅助完成部署。
+```bash
+curl -fsSL https://raw.githubusercontent.com/xiaoyoumi9924/jlu-booking/main/scripts/quick-start.sh | bash
+```
+
+**Windows**
+
+```powershell
+irm https://raw.githubusercontent.com/xiaoyoumi9924/jlu-booking/main/scripts/quick-start.ps1 | iex
+```
+
+第一次运行会自动部署并打开页面，同时装好 `jlu` 命令；以后在终端运行 `jlu` 即可再次打开。
+
+> Windows 没有 `jlu` 命令，以后重新运行上面的 `irm` 命令，或双击 `%USERPROFILE%\.jlu-booking\deploy.bat`。
 
 ## 目前支持：
 
