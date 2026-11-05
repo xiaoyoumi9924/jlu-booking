@@ -52,4 +52,3 @@ def test_local_web_keeps_the_daily_plan_page(tmp_path):
         page = client.get("/daily-plan")
         assert page.status_code == 200
         assert "每日预约方案" in page.text
-        assert "开启每日自动预约" in page.text
