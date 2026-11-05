@@ -1,0 +1,22 @@
+#!/bin/sh
+# JLU Booking 本机 Web 版：一键部署 / 打开。
+#
+#   ./jlu           首次部署；之后启动（如未运行）并打开浏览器
+#   ./jlu stop      停止
+#   ./jlu status    查看状态
+#   ./jlu up        重新检查/修复安装并启动
+#
+set -e
+
+cd "$(dirname "$0")" || exit 1
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "未找到 python3。请先安装 Python 3.10 或更高版本。"
+    exit 1
+fi
+
+if [ "$#" -eq 0 ]; then
+    exec python3 tools/deploy_local.py open
+fi
+
+exec python3 tools/deploy_local.py "$@"

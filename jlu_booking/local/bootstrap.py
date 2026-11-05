@@ -368,13 +368,25 @@ def ensure_local_identity(
     )
 
 
+def _attach_local_session(app, identity, now: datetime) -> None:
+    app.state.services.connection.execute(
+        "DELETE FROM web_sessions WHERE user_id = ?", (identity.user_id,)
+    )
+    grant = app.state.services.sessions.create(identity.user_id, now)
+    session = app.state.services.sessions.resolve(grant.raw_token, now)
+    if session is None:  # pragma: no cover - defensive only
+        raise RuntimeError("无法创建本机会话。")
+    app.state.local_session = session
+    app.state.local_user_id = identity.user_id
+
+
 def create_local_app(
     *,
     base_dir: Path | str | None = None,
     token: str | None = None,
     companion_number: str | None = None,
 ):
-    """Create the single-account app and attach its in-process session."""
+    """Create the single-account desktop app and attach its in-process session."""
 
     settings = ensure_local_settings(base_dir)
     app = create_app(settings, local_mode=True)
@@ -386,13 +398,26 @@ def create_local_app(
         token=token,
         companion_number=companion_number,
     )
-    app.state.services.connection.execute(
-        "DELETE FROM web_sessions WHERE user_id = ?", (identity.user_id,)
-    )
-    grant = app.state.services.sessions.create(identity.user_id, now)
-    session = app.state.services.sessions.resolve(grant.raw_token, now)
-    if session is None:  # pragma: no cover - defensive only
-        raise RuntimeError("无法创建本机会话。")
-    app.state.local_session = session
-    app.state.local_user_id = identity.user_id
+    _attach_local_session(app, identity, now)
     return app, settings, identity
+
+
+def create_local_web_app(
+    settings: WebSettings,
+    *,
+    token: str | None = None,
+    companion_number: str | None = None,
+):
+    """Create the single-user Web app: no login, but automatic booking stays."""
+
+    app = create_app(settings, local_mode=True, local_auto=True)
+    now = datetime.now(BEIJING)
+    identity = ensure_local_identity(
+        app.state.services,
+        settings,
+        now=now,
+        token=token,
+        companion_number=companion_number,
+    )
+    _attach_local_session(app, identity, now)
+    return app, identity
