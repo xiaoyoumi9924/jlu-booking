@@ -86,18 +86,11 @@ Linux：运行 `JLU Booking`
 | 前卫体育馆 | 羽毛球、乒乓球、匹克球 |
 | 宋治平体育馆 | 排球、乒乓球、网球 |
 
-## 文档
-
-- [完整使用说明](docs/usage.md)：源码安装、Token 管理、CLI、定时任务、配置路径和排错
-- [Linux 安装与使用](docs/linux.md)
-- [贡献指南](CONTRIBUTING.md)
-- [安全说明](SECURITY.md)
 
 ## 网站（测试版）
 
 目前仅支持15人，且为邀请制，需邀请码才能进行注册，注册前请联系管理员 fxyf00@qq.com<br>
 [https://booking.meiyh9924.xyz/](https://booking.meiyh9924.xyz/)
-
 
 
 ## License
