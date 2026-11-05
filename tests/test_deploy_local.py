@@ -246,3 +246,35 @@ def test_quick_start_scripts_expose_the_documented_entry_points():
     assert "JLU_BOOKING_HOME" in unix
     assert "tools\\deploy_local.py" in windows
     assert "JLU_BOOKING_HOME" in windows
+
+def test_link_installs_a_global_jlu_command(tmp_path, monkeypatch):
+    if os.name == "nt":
+        pytest.skip("POSIX symlink launcher")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    monkeypatch.setenv("JLU_BOOKING_BIN_DIR", str(bin_dir))
+    monkeypatch.setenv(
+        "PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+    )
+
+    assert deploy_local.cmd_link(SimpleNamespace(quiet=False, auto_path=False)) == 0
+
+    link = bin_dir / "jlu"
+    assert link.is_symlink()
+    assert link.resolve() == (deploy_local.ROOT / "jlu").resolve()
+
+    # Running it again must not fail or duplicate anything.
+    assert deploy_local.cmd_link(SimpleNamespace(quiet=True, auto_path=False)) == 0
+
+
+def test_append_path_block_is_written_once(tmp_path):
+    rc = tmp_path / "rc"
+    directory = Path.home() / ".local" / "bin"
+
+    assert deploy_local._append_path_block(directory, rc) is True
+    assert deploy_local._append_path_block(directory, rc) is True
+
+    text = rc.read_text(encoding="utf-8")
+    assert text.count("JLU Booking launcher >>>") == 1
+    assert 'export PATH="$HOME/.local/bin:$PATH"' in text

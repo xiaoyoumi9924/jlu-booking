@@ -68,7 +68,7 @@ if ($env:JLU_BOOKING_DRY_RUN -eq "1") {
 }
 
 if ($Fresh) {
-    Write-Host "以后打开：$Target\jlu（或重新运行本命令）"
+    Write-Host "以后打开：重新运行本命令，或双击 $Target\deploy.bat"
 }
 
 & $Python @PythonArgs "tools\deploy_local.py" open

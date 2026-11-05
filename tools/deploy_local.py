@@ -700,6 +700,8 @@ def print_next_steps(settings: Settings) -> None:
         "up 会自动启用；单独 install 后可用 autostart on 启用。"
     )
     print("查看状态：./jlu status")
+    if os.name != "nt" and shutil.which("jlu") is None:
+        print("提示：运行 ./jlu link 可把 jlu 安装到 PATH，以后直接敲 jlu。")
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -1498,6 +1500,137 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Global `jlu` command
+
+
+def _path_contains(directory: Path) -> bool:
+    for raw in os.environ.get("PATH", "").split(os.pathsep):
+        if not raw:
+            continue
+        try:
+            if Path(raw).expanduser().resolve() == directory:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _prepare_directory(directory: Path) -> bool:
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    return os.access(directory, os.W_OK)
+
+
+def _launcher_candidates() -> list[Path]:
+    override = os.environ.get("JLU_BOOKING_BIN_DIR")
+    if override:
+        return [Path(override).expanduser().resolve()]
+    home = Path.home()
+    ordered = [home / ".local" / "bin", home / "bin"]
+    if sys.platform == "darwin":
+        ordered.append(Path("/opt/homebrew/bin"))
+    ordered.append(Path("/usr/local/bin"))
+    return [path for path in ordered if _path_contains(path)]
+
+
+def _shell_rc_path() -> Path:
+    shell = os.path.basename(os.environ.get("SHELL", ""))
+    home = Path.home()
+    if shell == "zsh":
+        return home / ".zshrc"
+    if shell == "bash":
+        return home / ".bashrc" if sys.platform != "darwin" else home / ".bash_profile"
+    return home / ".profile"
+
+
+def _append_path_block(directory: Path, rc_path: Path | None = None) -> bool:
+    """Add the directory to PATH once, guarded by markers."""
+
+    rc = rc_path or _shell_rc_path()
+    marker = "# >>> JLU Booking launcher >>>"
+    try:
+        existing = rc.read_text(encoding="utf-8") if rc.is_file() else ""
+    except OSError:
+        return False
+    if marker in existing:
+        return True
+    home_bin = Path.home() / ".local" / "bin"
+    shown = "$HOME/.local/bin" if directory == home_bin else str(directory)
+    block = (
+        f"\n{marker}\n"
+        f'export PATH="{shown}:$PATH"\n'
+        "# <<< JLU Booking launcher <<<\n"
+    )
+    try:
+        with rc.open("a", encoding="utf-8") as handle:
+            handle.write(block)
+    except OSError:
+        return False
+    return True
+
+
+def _install_posix_launcher() -> tuple[Path, bool, bool]:
+    source = ROOT / "jlu"
+    if not source.is_file():
+        raise DeployError("找不到 jlu 启动器，无法安装命令。")
+    _chmod(source, 0o755)
+
+    for directory in _launcher_candidates():
+        if not _prepare_directory(directory):
+            continue
+        destination = directory / "jlu"
+        if destination.is_symlink() or destination.exists():
+            if destination.is_symlink() and destination.resolve() == source.resolve():
+                return destination, _path_contains(directory), False
+            continue
+        try:
+            destination.symlink_to(source)
+        except OSError:
+            continue
+        _chmod(destination, 0o755)
+        return destination, _path_contains(directory), True
+
+    fallback = Path.home() / ".local" / "bin"
+    if not _prepare_directory(fallback):
+        raise DeployError("找不到可写目录来安装 jlu 命令。")
+    destination = fallback / "jlu"
+    if destination.is_symlink() or destination.exists():
+        if destination.is_symlink() and destination.resolve() == source.resolve():
+            return destination, _path_contains(fallback), False
+        raise DeployError(f"{destination} 已存在且不是本项目的链接。")
+    destination.symlink_to(source)
+    _chmod(destination, 0o755)
+    return destination, _path_contains(fallback), True
+
+
+def cmd_link(args: argparse.Namespace) -> int:
+    """Install a global ``jlu`` command that opens the local Web app."""
+
+    if os.name == "nt":
+        print("Windows 请双击 deploy.bat，或重新运行快速部署命令。")
+        return 0
+
+    destination, in_path, created = _install_posix_launcher()
+    quiet = bool(getattr(args, "quiet", False))
+    if created or not quiet:
+        print(f"已安装命令：{destination}")
+        print("以后在终端直接运行：jlu")
+
+    if not in_path:
+        rc = _shell_rc_path()
+        if getattr(args, "auto_path", False) and _append_path_block(
+            destination.parent, rc
+        ):
+            print(f"已把 {destination.parent} 加入 PATH（{rc}），重新打开终端后生效。")
+        else:
+            print(f"把下面一行加到 {rc} 后重新打开终端：")
+            print(f'export PATH="{destination.parent}:$PATH"')
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # One-command entry point
 
 
@@ -1611,6 +1744,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     scheduler = sub.add_parser("serve-scheduler", help="内部：带锁运行调度器")
     scheduler.set_defaults(handler=cmd_serve_scheduler)
+
+    link = sub.add_parser("link", help="把 jlu 命令安装到 PATH")
+    link.add_argument("--quiet", action="store_true", help="已安装时不重复输出")
+    link.add_argument(
+        "--auto-path",
+        action="store_true",
+        help="需要时自动写入 shell 配置",
+    )
+    link.set_defaults(handler=cmd_link)
 
     uninstall = sub.add_parser("uninstall", help="停止并移除自动运行")
     uninstall.add_argument("--purge", action="store_true", help="同时删除数据目录")

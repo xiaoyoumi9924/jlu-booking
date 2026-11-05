@@ -20,7 +20,7 @@ Windows PowerShell：
 irm https://raw.githubusercontent.com/xiaoyoumi9924/jlu-booking/main/scripts/quick-start.ps1 | iex
 ```
 
-脚本会克隆到 `~/.jlu-booking`（可用 `JLU_BOOKING_HOME` 改），第一次自动部署，之后同一条命令直接打开。需要先装好 Git 和 Python 3.10 或更高版本。
+脚本会克隆到 `~/.jlu-booking`（可用 `JLU_BOOKING_HOME` 改），第一次自动部署，并把 `jlu` 命令装进 PATH（通常是 `~/.local/bin`）。之后在终端直接运行 `jlu` 即可打开。需要先装好 Git 和 Python 3.10 或更高版本。
 
 ## 已经克隆了仓库
 
@@ -28,6 +28,12 @@ irm https://raw.githubusercontent.com/xiaoyoumi9924/jlu-booking/main/scripts/qui
 
 ```bash
 ./jlu
+```
+
+想让以后在任何目录都能直接运行 `jlu`，再执行一次：
+
+```bash
+./jlu link
 ```
 
 Windows 用 `deploy.bat`；macOS 也可以双击 `deploy.command`。
@@ -92,6 +98,7 @@ Windows 用 `deploy.bat`；macOS 也可以双击 `deploy.command`。
 ./jlu autostart status      # 查看每日自动运行
 ./jlu autostart on|off      # 开启/关闭
 ./jlu autostart --dry-run   # 只打印要安装的配置
+./jlu link                  # 把 jlu 安装到 PATH（装一次即可）
 ./jlu uninstall             # 停止并移除自动运行
 ./jlu up                    # 重新检查/修复安装并启动
 ```
