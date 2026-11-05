@@ -51,10 +51,13 @@ if [ "${JLU_BOOKING_DRY_RUN:-0}" = "1" ]; then
     exit 0
 fi
 
+# 安装全局 jlu 命令；失败不影响部署。
+./jlu link --quiet --auto-path || true
+
 # 通过 curl | bash 运行时 stdin 是脚本本身；把交互接回终端，
 # 这样管理员密码等提示才能正常输入。
 if [ "$FRESH" = "1" ]; then
-    say "以后打开：$TARGET/jlu（或重新运行本命令）"
+    say "以后打开：终端运行 jlu（或 $TARGET/jlu）"
 fi
 
 if [ -r /dev/tty ]; then

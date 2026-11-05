@@ -5,10 +5,21 @@
 #   ./jlu stop      停止
 #   ./jlu status    查看状态
 #   ./jlu up        重新检查/修复安装并启动
+#   ./jlu link      把 jlu 命令安装到 PATH
 #
 set -e
 
-cd "$(dirname "$0")" || exit 1
+# Resolve symlinks so `~/.local/bin/jlu` still finds this checkout.
+SELF="$0"
+while [ -L "$SELF" ]; do
+    DIR=$(cd "$(dirname "$SELF")" && pwd)
+    SELF=$(readlink "$SELF")
+    case "$SELF" in
+        /*) ;;
+        *) SELF="$DIR/$SELF" ;;
+    esac
+done
+cd "$(dirname "$SELF")" || exit 1
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "未找到 python3。请先安装 Python 3.10 或更高版本。"
