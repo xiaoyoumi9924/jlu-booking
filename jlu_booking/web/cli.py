@@ -40,6 +40,11 @@ def _parser() -> argparse.ArgumentParser:
     serve = commands.add_parser("serve", help="运行本机 Web 服务")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", default=8000, type=int)
+    serve.add_argument(
+        "--local",
+        action="store_true",
+        help="单机模式：免登录注册，并保留自动预约",
+    )
     return parser
 
 
@@ -184,14 +189,21 @@ def _run_serve(
     environ: Mapping[str, str],
     host: str,
     port: int,
+    local: bool = False,
 ) -> int:
     import uvicorn
 
-    from .app import create_app
-
     settings = WebSettings.from_env(environ, strict_permissions=True)
+    if local:
+        from ..local.bootstrap import create_local_web_app
+
+        app, _identity = create_local_web_app(settings)
+    else:
+        from .app import create_app
+
+        app = create_app(settings)
     uvicorn.run(
-        create_app(settings),
+        app,
         host=str(host),
         port=int(port),
         workers=1,
@@ -227,5 +239,6 @@ def main(
             environ=environment,
             host=args.host,
             port=args.port,
+            local=bool(getattr(args, "local", False)),
         )
     raise SystemExit(f"未知命令：{args.command}")

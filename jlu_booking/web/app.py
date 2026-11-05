@@ -93,14 +93,16 @@ def create_app(
     services: AppServices | None = None,
     *,
     local_mode: bool = False,
+    local_auto: bool = False,
 ) -> FastAPI:
     """Build the browser app.
 
     ``local_mode`` keeps the same user workspace but runs as a single local
-    account without login, registration, the admin console, or the daily
-    automatic-booking module. The public Web deployment keeps the default
-    multi-user behaviour.
+    account without login, registration, or the admin console. ``local_auto``
+    additionally enables the daily automatic-booking module for a single-user
+    local Web deployment; the desktop shell leaves it off.
     """
+    local_auto = bool(local_mode and local_auto)
 
     selected = services or _default_services(settings)
     migrate_database(selected.connection)
@@ -139,9 +141,11 @@ def create_app(
     app.state.settings = settings
     app.state.services = selected
     app.state.local_mode = bool(local_mode)
+    app.state.local_auto = local_auto
     app.state.templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
     app.state.templates.env.globals["user_venues"] = VENUES
     app.state.templates.env.globals["local_mode"] = bool(local_mode)
+    app.state.templates.env.globals["local_auto"] = local_auto
     app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
 
     @app.exception_handler(RateLimitExceeded)
@@ -182,7 +186,7 @@ def create_app(
     app.include_router(profile.router)
     app.include_router(dashboard.router)
     app.include_router(availability.router)
-    if not local_mode:
+    if not local_mode or local_auto:
         app.include_router(daily_plans.router)
     app.include_router(manual_booking.router)
     app.include_router(task_routes.router)
