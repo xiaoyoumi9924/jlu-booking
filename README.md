@@ -71,8 +71,9 @@ Linux：运行 `JLU Booking`
 
 ### 4. 本地部署（可选）
 
-桌面版不内置“自动预约”模块。如果想要电脑每天早上 **自动启动预约任务**，可以在本地部署 Web 版。
+桌面版不内置“自动预约”模块。如果想要电脑每天早上 **自动启动预约任务**，可以在本地部署 Web 版。</br>
 先安装 [Git](https://git-scm.com/) 和 [Python 3.10+](https://www.python.org/downloads/)。
+打开终端然后运行：
 
 **macOS / Linux**
 
