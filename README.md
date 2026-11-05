@@ -11,13 +11,12 @@
 
 ## 立即下载
 
-| 系统 | 下载 | 解压后打开 |
-| --- | --- | --- |
+| 系统 | 下载 |
+| --- | --- |
 | Windows | [下载 Windows 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Windows.zip) |
 | macOS | [下载 macOS 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-macOS.zip) |
 | Linux | [下载 Linux 版](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest/download/jlu-booking-Linux.tar.gz) |
 
-也可以进入 [Releases 页面](https://github.com/xiaoyoumi9924/jlu-booking/releases/latest) 查看最新版本和更新说明。
 
 ## 使用步骤
 
@@ -95,9 +94,8 @@ Linux：运行 `JLU Booking`
 - [安全说明](SECURITY.md)
 
 ## 网站（测试版）
-目前仅支持15人，且为邀请制，需邀请码才能进行注册，注册前请联系管理员[fxyf00@qq.com](mailto:fxyf00@qq.com)
-**访问入口：**  
-[点击进入登录页](https://booking.meiyh9924.xyz/)
+目前仅支持15人，且为邀请制，需邀请码才能进行注册，注册前请联系管理员[fxyf00@qq.com](mailto:fxyf00@qq.com) 
+[点击进入登录页](https://booking.meiyh9924.xyz/)https://booking.meiyh9924.xyz/
 
 
 
